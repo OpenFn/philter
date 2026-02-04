@@ -6,6 +6,29 @@ defmodule Weir do
   (hash, size, timing, preview) without buffering. Supports conditional body
   accumulation for content types you want to persist.
 
+  > **Weir** /wɪər/ - A low dam built across a river to raise the level of water
+  > upstream or regulate its flow, often used for measuring flow rate. Perfect
+  > metaphor for a streaming proxy that observes traffic without blocking it.
+
+  ## Finch Setup (Required)
+
+  Weir requires a running Finch HTTP client instance. Add to your application's
+  supervision tree:
+
+      # lib/my_app/application.ex
+      children = [
+        {Finch, name: MyApp.Finch}
+      ]
+
+  Then configure Weir to use it:
+
+      # config/config.exs
+      config :weir, finch_name: MyApp.Finch
+
+  Or pass it per-request:
+
+      Weir.proxy(conn, upstream: "https://api.example.com", finch_name: MyApp.Finch)
+
   ## Quick Start
 
       # In a Phoenix controller

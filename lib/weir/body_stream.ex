@@ -33,14 +33,13 @@ defmodule Weir.BodyStream do
                 on_chunk.(chunk)
                 {[chunk], {:continue, conn}}
 
+              # Empty chunk means no more data
+              {:ok, "", conn} ->
+                {:halt, conn}
+
               {:ok, chunk, conn} ->
-                # Empty chunk means no more data
-                if chunk == "" do
-                  {:halt, conn}
-                else
-                  on_chunk.(chunk)
-                  {[chunk], {:done, conn}}
-                end
+                on_chunk.(chunk)
+                {[chunk], {:done, conn}}
 
               {:error, reason} ->
                 raise "Failed to read request body: #{inspect(reason)}"

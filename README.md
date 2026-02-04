@@ -1,11 +1,24 @@
 # Weir
 
-**TODO: Add description**
+[![Hex.pm](https://img.shields.io/hexpm/v/weir.svg)](https://hex.pm/packages/weir)
+[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/weir)
+[![CI](https://github.com/stuartc/weir/actions/workflows/ci.yml/badge.svg)](https://github.com/stuartc/weir/actions)
+
+Streaming HTTP proxy library with O(1) memory body observation for Elixir.
+
+> **Weir** /wɪər/ - A low dam that measures water flow without blocking it.
+
+## Features
+
+- **Zero buffering**: Stream requests and responses without memory accumulation
+- **Body observation**: Capture SHA256, size, preview, timing without buffering
+- **Plug integration**: Use as Plug or call directly from controllers
+- **Configurable**: Per-request overrides for all settings
+- **Observable**: Lifecycle callbacks for monitoring and logging
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `weir` to your list of dependencies in `mix.exs`:
+Add `weir` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -15,7 +28,125 @@ def deps do
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/weir>.
+## Quick Start
 
+1. Add Finch to your supervision tree:
+
+```elixir
+children = [
+  {Finch, name: MyApp.Finch}
+]
+```
+
+2. Configure Weir:
+
+```elixir
+# config/config.exs
+config :weir, finch_name: MyApp.Finch
+```
+
+3. Use in your controller:
+
+```elixir
+def proxy(conn, _params) do
+  Weir.proxy(conn, upstream: "https://api.example.com")
+end
+```
+
+Or as a Plug in your router:
+
+```elixir
+forward "/api", Weir.ProxyPlug, upstream: "https://api.example.com"
+```
+
+## Body Observation
+
+Weir captures observations about request and response bodies without buffering:
+
+```elixir
+conn = Weir.proxy(conn, upstream: "https://api.example.com")
+
+# Access observations from conn.private
+req_obs = conn.private[:weir_request_observation]
+resp_obs = conn.private[:weir_response_observation]
+
+# Each observation contains:
+# - :hash - SHA256 hash of the body
+# - :size - Total body size in bytes
+# - :preview - First 64KB of the body (UTF-8 safe truncation)
+# - :body - Full body (only if under max_payload_size and content-type matches)
+# - :duration_us - Processing time in microseconds
+```
+
+## Observer Callbacks
+
+Implement `Weir.Observer` to hook into the proxy lifecycle:
+
+```elixir
+defmodule MyApp.ProxyObserver do
+  use Weir.Observer
+
+  @impl true
+  def handle_request_started(metadata) do
+    Logger.info("Proxying #{metadata.method} #{metadata.upstream_url}")
+    :ok
+  end
+
+  @impl true
+  def handle_response_started(metadata) do
+    Logger.info("TTFB: #{metadata.ttfb_ms}ms")
+    :ok
+  end
+
+  @impl true
+  def handle_response_finished(result) do
+    Logger.info("Completed: #{result.status} in #{result.duration_us}us")
+    # result contains :request_observation and :response_observation
+    :ok
+  end
+end
+
+# Use it:
+Weir.proxy(conn,
+  upstream: "https://api.example.com",
+  observer: MyApp.ProxyObserver
+)
+```
+
+## Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `:finch_name` | `Weir.Finch` | Name of the Finch pool to use |
+| `:receive_timeout` | `15_000` | Response timeout in milliseconds |
+| `:max_payload_size` | `1_048_576` | Max body size for full accumulation (1MB) |
+| `:persistable_content_types` | JSON/XML/text | Content types eligible for body storage |
+
+Override per-request:
+
+```elixir
+Weir.proxy(conn,
+  upstream: "https://api.example.com",
+  receive_timeout: 60_000,
+  max_payload_size: 5_242_880
+)
+```
+
+Or set application defaults:
+
+```elixir
+# config/config.exs
+config :weir,
+  finch_name: MyApp.Finch,
+  receive_timeout: 30_000,
+  max_payload_size: 5_242_880,
+  persistable_content_types: ["application/json", "text/*"]
+```
+
+## Documentation
+
+Full documentation: [https://hexdocs.pm/weir](https://hexdocs.pm/weir)
+
+## License
+
+Apache-2.0

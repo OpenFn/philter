@@ -4,8 +4,9 @@ defmodule Weir.ConfigTest do
   alias Weir.Config
 
   describe "defaults" do
-    test "finch_name has default" do
-      assert Config.finch_name() == Weir.Finch
+    test "finch_name can be configured via application env" do
+      # test_helper.exs sets this to Weir.TestFinch
+      assert Config.finch_name() == Weir.TestFinch
     end
 
     test "receive_timeout has default" do

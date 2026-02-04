@@ -25,11 +25,11 @@ defmodule Weir.UTF8Test do
     end
 
     test "preserves complete multi-byte characters" do
-      # "e" is 2 bytes (C3 A9)
-      # "cafe" = "caf" (3 bytes) + "e" (2 bytes) = 5 bytes
-      assert UTF8.truncate("cafe", 5) == "cafe"
-      assert UTF8.truncate("cafe", 4) == "caf"
-      assert UTF8.truncate("cafe", 3) == "caf"
+      # "é" is 2 bytes (C3 A9)
+      # "café" = "caf" (3 bytes) + "é" (2 bytes) = 5 bytes
+      assert UTF8.truncate("café", 5) == "café"
+      assert UTF8.truncate("café", 4) == "caf"
+      assert UTF8.truncate("café", 3) == "caf"
     end
 
     test "handles 3-byte UTF-8 characters" do
