@@ -1,0 +1,314 @@
+defmodule Weir.ProxyPlug do
+  @moduledoc """
+  Plug interface for streaming HTTP proxying. Use this when you want to proxy
+  all requests on a route without pre-processing logic.
+
+  For controller-based usage with authentication or custom routing, see `Weir.proxy/2`.
+
+  ## Router Usage
+
+      defmodule MyAppWeb.Router do
+        use MyAppWeb, :router
+
+        forward "/api/v1", Weir.ProxyPlug, upstream: "http://api.internal:4000"
+        forward "/legacy", Weir.ProxyPlug,
+          upstream: "http://legacy.example.com",
+          receive_timeout: 30_000
+      end
+
+  ## Options
+
+    * `:upstream` - Base URL of upstream server (required)
+    * `:observer` - Observer module or `{module, args}` tuple (optional)
+    * `:finch_name` - Finch pool name (default: `Weir.Finch`)
+    * `:receive_timeout` - Response timeout in ms (default: `15_000`)
+    * `:max_payload_size` - Max body size for accumulation (default: `1_048_576`)
+    * `:persistable_content_types` - Content types to accumulate (default: JSON, XML, text)
+
+  See `Weir.Config` for global defaults and application configuration.
+
+  ## Accessing Observations
+
+  After proxying, observations are available in `conn.private`:
+
+      plug :fetch_observations
+
+      defp fetch_observations(conn, _opts) do
+        req_obs = conn.private[:weir_request_observation]
+        resp_obs = conn.private[:weir_response_observation]
+        # req_obs and resp_obs contain: hash, size, preview, timing
+        conn
+      end
+
+  ## Comparison with Weir.proxy/2
+
+  Use `Weir.ProxyPlug` when:
+    * Forwarding entire route prefixes without pre-processing
+    * No authentication or authorization is needed before proxying
+
+  Use `Weir.proxy/2` when:
+    * You need authentication before proxying
+    * You need to dynamically determine the upstream URL
+    * You want to inspect or modify the request before forwarding
+
+  Example with `Weir.proxy/2`:
+
+      def proxy(conn, _params) do
+        with {:ok, user} <- authenticate(conn),
+             {:ok, upstream} <- resolve_upstream(user) do
+          Weir.proxy(conn, upstream: upstream)
+        end
+      end
+  """
+
+  @behaviour Plug
+
+  import Plug.Conn
+  require Logger
+
+  alias Weir.{Config, Observation, ResponseStreamer}
+
+  @timeout_reasons [:timeout, :connect_timeout, {:closed, :timeout}]
+
+  @hop_by_hop_headers [
+    "te",
+    "transfer-encoding",
+    "trailer",
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "upgrade"
+  ]
+
+  @impl true
+  def init(opts) do
+    upstream = Keyword.fetch!(opts, :upstream)
+    observer = resolve_observer(opts)
+
+    %{
+      upstream: upstream,
+      observer: observer,
+      opts: opts
+    }
+  end
+
+  @impl true
+  def call(conn, %{upstream: upstream, observer: observer, opts: opts}) do
+    config = Config.resolve(opts)
+    request_id = generate_request_id()
+    started_at = System.monotonic_time(:microsecond)
+    upstream_url = build_upstream_url(upstream, conn)
+    req_content_type = get_content_type(conn.req_headers)
+
+    # Notify observer of request start
+    notify_request_started(observer, %{
+      request_id: request_id,
+      upstream_url: upstream_url,
+      method: conn.method,
+      headers: conn.req_headers,
+      content_type: req_content_type,
+      started_at: started_at
+    })
+
+    # Determine if request body should be accumulated
+    req_accumulate? =
+      Config.content_type_persistable?(req_content_type, config.persistable_content_types)
+
+    # Get request body stream with observation
+    {request_body, req_obs_agent} =
+      get_request_body(conn, accumulate?: req_accumulate?, max_size: config.max_payload_size)
+
+    # Build Finch request
+    request =
+      Finch.build(
+        method_atom(conn.method),
+        upstream_url,
+        filter_request_headers(conn.req_headers),
+        request_body
+      )
+
+    # Initialize response observation (configured when headers arrive)
+    {:ok, resp_obs_agent} =
+      Agent.start_link(fn ->
+        Observation.new(accumulate?: false, max_size: config.max_payload_size)
+      end)
+
+    # Stream request and response
+    case stream_request(conn, request, config, resp_obs_agent, observer, request_id) do
+      {:ok, conn} ->
+        # Finalize observations
+        req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
+        resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
+        Agent.stop(resp_obs_agent)
+
+        # Notify observer of completion
+        notify_response_finished(observer, %{
+          request_id: request_id,
+          request_observation: req_observation,
+          response_observation: resp_observation,
+          error: nil,
+          upstream_url: upstream_url,
+          method: conn.method,
+          status: conn.status,
+          duration_us: System.monotonic_time(:microsecond) - started_at
+        })
+
+        # Store observations in conn private for later retrieval
+        conn
+        |> put_private(:weir_request_observation, req_observation)
+        |> put_private(:weir_response_observation, resp_observation)
+
+      {:error, %Finch.Error{reason: reason}} when reason in @timeout_reasons ->
+        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
+          request_id: request_id,
+          upstream_url: upstream_url,
+          method: conn.method,
+          started_at: started_at,
+          error: {:timeout, reason},
+          status: 504,
+          body: "Gateway Timeout"
+        })
+
+      {:error, %Mint.TransportError{reason: reason}} when reason in @timeout_reasons ->
+        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
+          request_id: request_id,
+          upstream_url: upstream_url,
+          method: conn.method,
+          started_at: started_at,
+          error: {:timeout, reason},
+          status: 504,
+          body: "Gateway Timeout"
+        })
+
+      {:error, error} ->
+        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
+          request_id: request_id,
+          upstream_url: upstream_url,
+          method: conn.method,
+          started_at: started_at,
+          error: error,
+          status: 502,
+          body: "Bad Gateway"
+        })
+    end
+  end
+
+  defp resolve_observer(opts) do
+    case Keyword.get(opts, :observer) do
+      nil -> nil
+      {module, args} when is_atom(module) -> {module, args}
+      module when is_atom(module) -> {module, []}
+    end
+  end
+
+  defp generate_request_id do
+    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
+  end
+
+  defp build_upstream_url(upstream, conn) do
+    query = if conn.query_string == "", do: "", else: "?#{conn.query_string}"
+    "#{upstream}#{conn.request_path}#{query}"
+  end
+
+  defp get_content_type(headers) do
+    case List.keyfind(headers, "content-type", 0) do
+      {_, value} -> value
+      nil -> nil
+    end
+  end
+
+  defp get_request_body(conn, opts) do
+    case get_req_header(conn, "content-length") do
+      ["0"] ->
+        {{:stream, []}, start_empty_observation(opts)}
+
+      [] ->
+        case get_req_header(conn, "transfer-encoding") do
+          ["chunked"] -> Weir.BodyStream.from_conn_with_observation(conn, opts)
+          _ -> {{:stream, []}, start_empty_observation(opts)}
+        end
+
+      _ ->
+        Weir.BodyStream.from_conn_with_observation(conn, opts)
+    end
+  end
+
+  defp start_empty_observation(opts) do
+    {:ok, agent} = Agent.start_link(fn -> Observation.new(opts) end)
+    agent
+  end
+
+  defp stream_request(conn, request, config, resp_obs_agent, observer, request_id) do
+    initial_state =
+      ResponseStreamer.new(conn, resp_obs_agent,
+        observer: observer,
+        request_id: request_id,
+        config: config
+      )
+
+    result =
+      Finch.stream_while(
+        request,
+        config.finch_name,
+        initial_state,
+        fn message, state -> ResponseStreamer.handle_message(message, state) end,
+        receive_timeout: config.receive_timeout
+      )
+
+    case result do
+      {:ok, final_state} -> {:ok, ResponseStreamer.get_conn(final_state)}
+      {:error, exception} -> {:error, exception}
+      {:error, exception, _acc} -> {:error, exception}
+    end
+  end
+
+  defp filter_request_headers(headers) do
+    headers
+    |> Enum.reject(fn {key, _} ->
+      String.downcase(key) in @hop_by_hop_headers
+    end)
+    |> Enum.map(fn {key, value} -> {String.downcase(key), value} end)
+  end
+
+  defp method_atom(method) do
+    method |> String.downcase() |> String.to_existing_atom()
+  end
+
+  defp handle_error(conn, req_obs_agent, resp_obs_agent, observer, info) do
+    # Get partial observations
+    req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
+    resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
+    Agent.stop(resp_obs_agent)
+
+    # Notify observer
+    notify_response_finished(observer, %{
+      request_id: info.request_id,
+      request_observation: req_observation,
+      response_observation: resp_observation,
+      error: info.error,
+      upstream_url: info.upstream_url,
+      method: info.method,
+      status: nil,
+      duration_us: System.monotonic_time(:microsecond) - info.started_at
+    })
+
+    conn |> send_resp(info.status, info.body) |> halt()
+  end
+
+  defp notify_request_started(nil, _metadata), do: :ok
+
+  defp notify_request_started({module, _args}, metadata) do
+    if function_exported?(module, :handle_request_started, 1) do
+      module.handle_request_started(metadata)
+    else
+      :ok
+    end
+  end
+
+  defp notify_response_finished(nil, _result), do: :ok
+
+  defp notify_response_finished({module, _args}, result) do
+    module.handle_response_finished(result)
+  end
+end
