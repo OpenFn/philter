@@ -45,14 +45,17 @@ defmodule Weir.ResponseStreamerTest do
 
   describe "handle_message/2 with :headers" do
     test "sends chunked response with filtered headers", %{conn: conn, obs_agent: obs_agent} do
-      state = ResponseStreamer.new(conn, obs_agent)
-      |> then(&%{&1 | status: 200})
+      state =
+        ResponseStreamer.new(conn, obs_agent)
+        |> then(&%{&1 | status: 200})
 
       headers = [
         {"Content-Type", "application/json"},
         {"X-Custom", "value"},
-        {"Transfer-Encoding", "chunked"},  # Should be filtered
-        {"Connection", "keep-alive"}        # Should be filtered
+        # Should be filtered
+        {"Transfer-Encoding", "chunked"},
+        # Should be filtered
+        {"Connection", "keep-alive"}
       ]
 
       {:cont, state} = ResponseStreamer.handle_message({:headers, headers}, state)
@@ -70,8 +73,9 @@ defmodule Weir.ResponseStreamerTest do
     end
 
     test "filters content-length header", %{conn: conn, obs_agent: obs_agent} do
-      state = ResponseStreamer.new(conn, obs_agent)
-      |> then(&%{&1 | status: 200})
+      state =
+        ResponseStreamer.new(conn, obs_agent)
+        |> then(&%{&1 | status: 200})
 
       headers = [{"Content-Length", "1234"}, {"X-Custom", "value"}]
 
@@ -84,8 +88,9 @@ defmodule Weir.ResponseStreamerTest do
 
   describe "handle_message/2 with :data" do
     test "updates observation with chunk data", %{conn: conn, obs_agent: obs_agent} do
-      state = ResponseStreamer.new(conn, obs_agent)
-      |> then(&%{&1 | status: 200})
+      state =
+        ResponseStreamer.new(conn, obs_agent)
+        |> then(&%{&1 | status: 200})
 
       # Send headers first to enable chunked response
       {:cont, state} = ResponseStreamer.handle_message({:headers, []}, state)
@@ -99,8 +104,9 @@ defmodule Weir.ResponseStreamerTest do
     end
 
     test "accumulates multiple chunks in observation", %{conn: conn, obs_agent: obs_agent} do
-      state = ResponseStreamer.new(conn, obs_agent)
-      |> then(&%{&1 | status: 200})
+      state =
+        ResponseStreamer.new(conn, obs_agent)
+        |> then(&%{&1 | status: 200})
 
       {:cont, state} = ResponseStreamer.handle_message({:headers, []}, state)
       {:cont, state} = ResponseStreamer.handle_message({:data, "hello"}, state)
@@ -112,8 +118,9 @@ defmodule Weir.ResponseStreamerTest do
     end
 
     test "returns :cont on successful chunk", %{conn: conn, obs_agent: obs_agent} do
-      state = ResponseStreamer.new(conn, obs_agent)
-      |> then(&%{&1 | status: 200})
+      state =
+        ResponseStreamer.new(conn, obs_agent)
+        |> then(&%{&1 | status: 200})
 
       {:cont, state} = ResponseStreamer.handle_message({:headers, []}, state)
 
@@ -127,7 +134,8 @@ defmodule Weir.ResponseStreamerTest do
     test "passes through without modification", %{conn: conn, obs_agent: obs_agent} do
       state = ResponseStreamer.new(conn, obs_agent)
 
-      {:cont, new_state} = ResponseStreamer.handle_message({:trailers, [{"x-trailer", "value"}]}, state)
+      {:cont, new_state} =
+        ResponseStreamer.handle_message({:trailers, [{"x-trailer", "value"}]}, state)
 
       assert new_state == state
     end

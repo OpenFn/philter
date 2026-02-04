@@ -33,7 +33,8 @@ defmodule Weir.UTF8 do
 
   """
   @spec truncate(binary(), non_neg_integer()) :: binary()
-  def truncate(binary, max_bytes) when is_binary(binary) and is_integer(max_bytes) and max_bytes >= 0 do
+  def truncate(binary, max_bytes)
+      when is_binary(binary) and is_integer(max_bytes) and max_bytes >= 0 do
     if byte_size(binary) <= max_bytes do
       binary
     else

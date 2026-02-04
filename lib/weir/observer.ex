@@ -37,7 +37,7 @@ defmodule Weir.Observer do
           #   content_type: "application/json",
           #   time_to_first_byte_us: 45_230
           # }
-          Logger.info("TTFB: #{metadata.time_to_first_byte_us}us")
+          Logger.info("TTFB: \#{metadata.time_to_first_byte_us}us")
           :ok
         end
 

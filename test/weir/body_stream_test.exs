@@ -58,7 +58,8 @@ defmodule Weir.BodyStreamTest do
       conn = conn(:post, "/", body)
 
       {{:stream, stream}, obs_agent} = BodyStream.from_conn_with_observation(conn)
-      Enum.to_list(stream)  # Consume the stream
+      # Consume the stream
+      Enum.to_list(stream)
 
       observation = BodyStream.finalize_observation(obs_agent)
 
@@ -79,7 +80,8 @@ defmodule Weir.BodyStreamTest do
       observation = BodyStream.finalize_observation(obs_agent)
 
       assert observation.size == 100_000
-      assert byte_size(observation.preview) == 64 * 1024  # Preview capped at 64KB
+      # Preview capped at 64KB
+      assert byte_size(observation.preview) == 64 * 1024
     end
   end
 end

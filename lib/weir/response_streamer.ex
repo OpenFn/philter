@@ -137,7 +137,9 @@ defmodule Weir.ResponseStreamer do
 
   defp get_content_type(headers) do
     case List.keyfind(headers, "content-type", 0) do
-      {_, value} -> value
+      {_, value} ->
+        value
+
       nil ->
         # Try lowercase
         case List.keyfind(headers, "Content-Type", 0) do

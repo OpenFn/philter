@@ -17,7 +17,8 @@ defmodule Weir.Observation do
   # - Only hash/preview/size/timing are captured
   # - `:body` is always nil in finalized result
 
-  @preview_size 64 * 1024  # 64KB preview
+  # 64KB preview
+  @preview_size 64 * 1024
 
   defstruct [
     :hash_state,
@@ -155,7 +156,8 @@ defmodule Weir.Observation do
     # Ensure preview is valid UTF-8 by trimming any incomplete sequences
     case Weir.UTF8.ensure_valid(preview) do
       {:ok, valid} -> valid
-      {:error, _} -> preview  # Keep as-is if it's binary data
+      # Keep as-is if it's binary data
+      {:error, _} -> preview
     end
   end
 

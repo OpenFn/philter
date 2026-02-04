@@ -35,17 +35,19 @@ defmodule Weir.ObservationTest do
 
   describe "update/2" do
     test "increments size" do
-      obs = Observation.new()
-      |> Observation.update("hello")
-      |> Observation.update("world")
+      obs =
+        Observation.new()
+        |> Observation.update("hello")
+        |> Observation.update("world")
 
       assert obs.size == 10
     end
 
     test "captures preview up to 64KB" do
-      obs = Observation.new()
-      |> Observation.update("hello")
-      |> Observation.update(" world")
+      obs =
+        Observation.new()
+        |> Observation.update("hello")
+        |> Observation.update(" world")
 
       assert obs.preview == "hello world"
     end
@@ -73,24 +75,27 @@ defmodule Weir.ObservationTest do
 
       Process.sleep(1)
       obs = Observation.update(obs, "more")
-      assert obs.first_byte_at == first_time  # Unchanged
+      # Unchanged
+      assert obs.first_byte_at == first_time
     end
   end
 
   describe "finalize/1" do
     test "computes correct SHA256 hash" do
-      obs = Observation.new()
-      |> Observation.update("hello world")
-      |> Observation.finalize()
+      obs =
+        Observation.new()
+        |> Observation.update("hello world")
+        |> Observation.finalize()
 
       expected_hash = :crypto.hash(:sha256, "hello world") |> Base.encode16(case: :lower)
       assert obs.hash == expected_hash
     end
 
     test "returns complete observation data" do
-      obs = Observation.new()
-      |> Observation.update("test data")
-      |> Observation.finalize()
+      obs =
+        Observation.new()
+        |> Observation.update("test data")
+        |> Observation.finalize()
 
       assert Map.has_key?(obs, :hash)
       assert Map.has_key?(obs, :preview)
@@ -102,29 +107,32 @@ defmodule Weir.ObservationTest do
     test "hash is correct for multi-chunk data" do
       data = "chunk1chunk2chunk3"
 
-      obs = Observation.new()
-      |> Observation.update("chunk1")
-      |> Observation.update("chunk2")
-      |> Observation.update("chunk3")
-      |> Observation.finalize()
+      obs =
+        Observation.new()
+        |> Observation.update("chunk1")
+        |> Observation.update("chunk2")
+        |> Observation.update("chunk3")
+        |> Observation.finalize()
 
       expected_hash = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
       assert obs.hash == expected_hash
     end
 
     test "returns body as nil when not accumulating" do
-      obs = Observation.new()
-      |> Observation.update("test data")
-      |> Observation.finalize()
+      obs =
+        Observation.new()
+        |> Observation.update("test data")
+        |> Observation.finalize()
 
       assert obs.body == nil
     end
 
     test "returns accumulated body when accumulating" do
-      obs = Observation.new(accumulate?: true)
-      |> Observation.update("hello ")
-      |> Observation.update("world")
-      |> Observation.finalize()
+      obs =
+        Observation.new(accumulate?: true)
+        |> Observation.update("hello ")
+        |> Observation.update("world")
+        |> Observation.finalize()
 
       assert obs.body == "hello world"
     end
@@ -132,28 +140,34 @@ defmodule Weir.ObservationTest do
 
   describe "body accumulation" do
     test "accumulates chunks when enabled" do
-      obs = Observation.new(accumulate?: true)
-      |> Observation.update("chunk1")
-      |> Observation.update("chunk2")
+      obs =
+        Observation.new(accumulate?: true)
+        |> Observation.update("chunk1")
+        |> Observation.update("chunk2")
 
       assert obs.accumulated_body != nil
       assert obs.exceeded_threshold? == false
     end
 
     test "discards body when threshold exceeded" do
-      obs = Observation.new(accumulate?: true, max_size: 10)
-      |> Observation.update("12345")  # 5 bytes, under threshold
-      |> Observation.update("67890")  # 10 bytes total, still ok
-      |> Observation.update("extra")  # 15 bytes, over threshold
+      obs =
+        Observation.new(accumulate?: true, max_size: 10)
+        # 5 bytes, under threshold
+        |> Observation.update("12345")
+        # 10 bytes total, still ok
+        |> Observation.update("67890")
+        # 15 bytes, over threshold
+        |> Observation.update("extra")
 
       assert obs.exceeded_threshold? == true
       assert obs.accumulated_body == nil
     end
 
     test "finalize returns nil body when threshold exceeded" do
-      obs = Observation.new(accumulate?: true, max_size: 10)
-      |> Observation.update("this is way too long")
-      |> Observation.finalize()
+      obs =
+        Observation.new(accumulate?: true, max_size: 10)
+        |> Observation.update("this is way too long")
+        |> Observation.finalize()
 
       assert obs.body == nil
       # Hash should still be computed
@@ -164,9 +178,10 @@ defmodule Weir.ObservationTest do
     test "hash is correct even when body discarded" do
       data = "this is a test of discarding accumulated body"
 
-      obs = Observation.new(accumulate?: true, max_size: 10)
-      |> Observation.update(data)
-      |> Observation.finalize()
+      obs =
+        Observation.new(accumulate?: true, max_size: 10)
+        |> Observation.update(data)
+        |> Observation.finalize()
 
       expected_hash = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
       assert obs.hash == expected_hash
@@ -174,9 +189,12 @@ defmodule Weir.ObservationTest do
     end
 
     test "stays discarded once threshold exceeded" do
-      obs = Observation.new(accumulate?: true, max_size: 10)
-      |> Observation.update("12345678901")  # Exceeds threshold
-      |> Observation.update("more data")    # Should stay discarded
+      obs =
+        Observation.new(accumulate?: true, max_size: 10)
+        # Exceeds threshold
+        |> Observation.update("12345678901")
+        # Should stay discarded
+        |> Observation.update("more data")
 
       assert obs.exceeded_threshold? == true
       assert obs.accumulated_body == nil

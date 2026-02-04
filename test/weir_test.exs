@@ -135,7 +135,10 @@ defmodule WeirTest do
       assert req_obs.preview != nil
     end
 
-    test "discards accumulated body when threshold exceeded", %{bypass: bypass, upstream: upstream} do
+    test "discards accumulated body when threshold exceeded", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
       # Create response larger than 1KB threshold
       large_json = ~s({"data": "#{String.duplicate("x", 2000)}"})
 
