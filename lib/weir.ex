@@ -245,29 +245,7 @@ defmodule Weir do
         |> put_private(:weir_request_observation, req_observation)
         |> put_private(:weir_response_observation, resp_observation)
 
-      {:error, %Finch.Error{reason: reason}} when reason in @timeout_reasons ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: {:timeout, reason},
-          status: 504,
-          body: "Gateway Timeout"
-        })
-
       {:error, %Finch.Error{reason: reason}, _acc} when reason in @timeout_reasons ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: {:timeout, reason},
-          status: 504,
-          body: "Gateway Timeout"
-        })
-
-      {:error, %Mint.TransportError{reason: reason}} when reason in @timeout_reasons ->
         handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
           request_id: request_id,
           upstream_url: upstream_url,
@@ -287,17 +265,6 @@ defmodule Weir do
           error: {:timeout, reason},
           status: 504,
           body: "Gateway Timeout"
-        })
-
-      {:error, error} ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: error,
-          status: 502,
-          body: "Bad Gateway"
         })
 
       {:error, error, _acc} ->

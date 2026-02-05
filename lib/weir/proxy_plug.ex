@@ -258,7 +258,6 @@ defmodule Weir.ProxyPlug do
 
     case result do
       {:ok, final_state} -> {:ok, ResponseStreamer.get_conn(final_state)}
-      {:error, exception} -> {:error, exception}
       {:error, exception, _acc} -> {:error, exception}
     end
   end
