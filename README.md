@@ -2,7 +2,7 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/weir.svg)](https://hex.pm/packages/weir)
 [![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/weir)
-[![CI](https://github.com/stuartc/weir/actions/workflows/ci.yml/badge.svg)](https://github.com/stuartc/weir/actions)
+[![CI](https://github.com/OpenFn/weir/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenFn/weir/actions/workflows/ci.yml)
 
 Streaming HTTP proxy library with O(1) memory body observation for Elixir.
 
