@@ -327,6 +327,24 @@ defmodule Weir.ProxyPlugTest do
       assert conn.status == 200
     end
 
+    test "injects x-request-id header into upstream request", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/headers", fn conn ->
+        [request_id] = Plug.Conn.get_req_header(conn, "x-request-id")
+        assert byte_size(request_id) > 0
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/headers")
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+
+      assert conn.status == 200
+    end
+
     test "forwards response headers", %{
       bypass: bypass,
       upstream: upstream,

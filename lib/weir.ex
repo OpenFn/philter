@@ -196,7 +196,7 @@ defmodule Weir do
       Finch.build(
         method_atom(conn.method),
         upstream_url,
-        filter_request_headers(conn.req_headers),
+        filter_request_headers(conn.req_headers, request_id),
         request_body
       )
 
@@ -340,12 +340,13 @@ defmodule Weir do
     agent
   end
 
-  defp filter_request_headers(headers) do
+  defp filter_request_headers(headers, request_id) do
     headers
     |> Enum.reject(fn {key, _} ->
       String.downcase(key) in @hop_by_hop_headers
     end)
     |> Enum.map(fn {key, value} -> {String.downcase(key), value} end)
+    |> List.keystore("x-request-id", 0, {"x-request-id", request_id})
   end
 
   defp method_atom(method) do

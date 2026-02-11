@@ -209,6 +209,44 @@ defmodule WeirTest do
       assert result.response_observation.hash != nil
     end
 
+    test "injects x-request-id header into upstream request", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/rid", fn conn ->
+        [request_id] = Plug.Conn.get_req_header(conn, "x-request-id")
+        assert byte_size(request_id) > 0
+        Plug.Conn.send_resp(conn, 200, request_id)
+      end)
+
+      conn =
+        conn(:get, "/rid")
+        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+
+      assert conn.status == 200
+      assert byte_size(conn.resp_body) > 0
+    end
+
+    test "propagates caller-supplied request_id as x-request-id header", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/rid", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "x-request-id") == ["custom-id-42"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/rid")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          request_id: "custom-id-42"
+        )
+
+      assert conn.status == 200
+    end
+
     test "invokes observer on error with error info", %{upstream: _upstream} do
       Process.put(:test_pid, self())
 
