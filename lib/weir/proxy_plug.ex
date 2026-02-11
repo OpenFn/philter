@@ -98,7 +98,8 @@ defmodule Weir.ProxyPlug do
     config = Config.resolve(opts)
     request_id = generate_request_id()
     started_at = System.monotonic_time(:microsecond)
-    upstream_url = build_upstream_url(upstream, conn)
+    path = resolve_path(opts, conn)
+    upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
 
     # Notify observer of request start
@@ -206,9 +207,17 @@ defmodule Weir.ProxyPlug do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 
-  defp build_upstream_url(upstream, conn) do
-    query = if conn.query_string == "", do: "", else: "?#{conn.query_string}"
-    "#{upstream}#{conn.request_path}#{query}"
+  defp resolve_path(opts, conn) do
+    case Keyword.get(opts, :path) do
+      nil -> conn.request_path
+      fun when is_function(fun, 1) -> fun.(conn)
+      path when is_binary(path) -> path
+    end
+  end
+
+  defp build_upstream_url(upstream, path, query_string) do
+    query = if query_string == "", do: "", else: "?#{query_string}"
+    "#{upstream}#{path}#{query}"
   end
 
   defp get_content_type(headers) do

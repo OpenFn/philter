@@ -233,6 +233,65 @@ defmodule WeirTest do
     end
   end
 
+  describe "proxy/2 path override" do
+    test "uses string path override", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/api/v2", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/channels/some-id/api/v2")
+        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch, path: "/api/v2")
+
+      assert conn.status == 200
+      assert conn.resp_body =~ "ok"
+    end
+
+    test "uses function path override", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/prefix/original", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/original")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          path: fn conn -> "/prefix" <> conn.request_path end
+        )
+
+      assert conn.status == 200
+    end
+
+    test "preserves query string with path override", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/override", fn conn ->
+        assert conn.query_string == "foo=bar"
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/original?foo=bar")
+        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch, path: "/override")
+
+      assert conn.status == 200
+    end
+
+    test "defaults to conn.request_path when no path option", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/default-path", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/default-path")
+        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+
+      assert conn.status == 200
+    end
+  end
+
   describe "proxy/2 timeout handling" do
     test "returns 504 on timeout" do
       # Start a TCP server that accepts but never responds

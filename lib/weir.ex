@@ -92,6 +92,7 @@ defmodule Weir do
 
   @type proxy_opts :: [
           upstream: String.t(),
+          path: String.t() | (Plug.Conn.t() -> String.t()),
           observer: module() | {module(), keyword()},
           finch_name: atom(),
           receive_timeout: pos_integer(),
@@ -139,6 +140,9 @@ defmodule Weir do
     * `:max_payload_size` - Max body size in bytes for full accumulation.
       Bodies exceeding this are still hashed and previewed. Default: `1_048_576` (1MB).
 
+    * `:path` - Override the request path sent to upstream. Can be a string
+      or a function `(Plug.Conn.t() -> String.t())`. Default: `conn.request_path`.
+
     * `:persistable_content_types` - Content types eligible for body accumulation.
       Supports wildcards like `"text/*"`. Default: JSON, XML, and text types.
 
@@ -165,7 +169,8 @@ defmodule Weir do
     request_id = Keyword.get(opts, :request_id, generate_request_id())
 
     started_at = System.monotonic_time(:microsecond)
-    upstream_url = build_upstream_url(upstream, conn)
+    path = resolve_path(opts, conn)
+    upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
 
     # Notify observer of request start
@@ -294,9 +299,17 @@ defmodule Weir do
     :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
   end
 
-  defp build_upstream_url(upstream, conn) do
-    query = if conn.query_string == "", do: "", else: "?#{conn.query_string}"
-    "#{upstream}#{conn.request_path}#{query}"
+  defp resolve_path(opts, conn) do
+    case Keyword.get(opts, :path) do
+      nil -> conn.request_path
+      fun when is_function(fun, 1) -> fun.(conn)
+      path when is_binary(path) -> path
+    end
+  end
+
+  defp build_upstream_url(upstream, path, query_string) do
+    query = if query_string == "", do: "", else: "?#{query_string}"
+    "#{upstream}#{path}#{query}"
   end
 
   defp get_content_type(headers) do

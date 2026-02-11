@@ -172,6 +172,67 @@ defmodule Weir.ProxyPlugTest do
     end
   end
 
+  describe "path override" do
+    test "uses string path override", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/api/v2", fn conn ->
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/channels/some-id/api/v2")
+        |> ProxyPlug.call(
+          ProxyPlug.init(upstream: upstream, finch_name: finch_name, path: "/api/v2")
+        )
+
+      assert conn.status == 200
+    end
+
+    test "uses function path override", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/prefix/original", fn conn ->
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/original")
+        |> ProxyPlug.call(
+          ProxyPlug.init(
+            upstream: upstream,
+            finch_name: finch_name,
+            path: fn conn -> "/prefix" <> conn.request_path end
+          )
+        )
+
+      assert conn.status == 200
+    end
+
+    test "preserves query string with path override", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/override", fn conn ->
+        assert conn.query_string == "foo=bar"
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/original?foo=bar")
+        |> ProxyPlug.call(
+          ProxyPlug.init(upstream: upstream, finch_name: finch_name, path: "/override")
+        )
+
+      assert conn.status == 200
+    end
+  end
+
   describe "error handling" do
     test "returns 502 on sink connection refused", %{finch_name: finch_name} do
       conn =
