@@ -183,6 +183,8 @@ defmodule Weir do
            started_at: started_at
          }) do
       {:ok, handler_state} ->
+        {:ok, handler_agent} = Agent.start_link(fn -> handler_state end)
+
         # Determine if request body should be accumulated
         req_accumulate? =
           Config.content_type_persistable?(
@@ -219,7 +221,7 @@ defmodule Weir do
             handler: handler,
             request_id: request_id,
             config: config,
-            handler_state: handler_state,
+            handler_agent: handler_agent,
             started_at: started_at
           )
 
@@ -237,12 +239,13 @@ defmodule Weir do
         case result do
           {:ok, final_state} ->
             conn = ResponseStreamer.get_conn(final_state)
-            final_handler_state = ResponseStreamer.get_handler_state(final_state)
+            final_handler_state = Agent.get(handler_agent, & &1)
 
             # Finalize observations
             req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
             resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
             Agent.stop(resp_obs_agent)
+            Agent.stop(handler_agent)
 
             # Notify handler of completion
             notify_response_finished(
@@ -267,7 +270,7 @@ defmodule Weir do
 
           {:error, %Finch.Error{reason: reason}, _acc}
           when reason in @timeout_reasons ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
               request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
@@ -279,7 +282,7 @@ defmodule Weir do
 
           {:error, %Mint.TransportError{reason: reason}, _acc}
           when reason in @timeout_reasons ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
               request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
@@ -290,7 +293,7 @@ defmodule Weir do
             })
 
           {:error, error, _acc} ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
               request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
@@ -374,11 +377,14 @@ defmodule Weir do
     method |> String.downcase() |> String.to_existing_atom()
   end
 
-  defp handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, info) do
+  defp handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, info) do
     # Get partial observations
     req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
     resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
     Agent.stop(resp_obs_agent)
+
+    handler_state = Agent.get(handler_agent, & &1)
+    Agent.stop(handler_agent)
 
     # Notify handler
     notify_response_finished(

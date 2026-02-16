@@ -32,7 +32,7 @@ defmodule Weir.ResponseStreamer do
     :config,
     :response_headers,
     :ttfb_notified,
-    :handler_state,
+    :handler_agent,
     :started_at
   ]
 
@@ -47,7 +47,7 @@ defmodule Weir.ResponseStreamer do
           config: map() | nil,
           response_headers: [{String.t(), String.t()}] | nil,
           ttfb_notified: boolean(),
-          handler_state: term(),
+          handler_agent: pid() | nil,
           started_at: integer() | nil
         }
 
@@ -65,7 +65,7 @@ defmodule Weir.ResponseStreamer do
       config: Keyword.get(opts, :config),
       response_headers: nil,
       ttfb_notified: false,
-      handler_state: Keyword.get(opts, :handler_state),
+      handler_agent: Keyword.get(opts, :handler_agent),
       started_at: Keyword.get(opts, :started_at)
     }
   end
@@ -115,9 +115,6 @@ defmodule Weir.ResponseStreamer do
   @doc false
   @spec get_conn(t()) :: Plug.Conn.t()
   def get_conn(state), do: state.conn
-
-  @doc false
-  def get_handler_state(%__MODULE__{handler_state: state}), do: state
 
   @doc false
   @spec get_error(t()) :: term() | nil
@@ -180,6 +177,8 @@ defmodule Weir.ResponseStreamer do
     ttfb = System.monotonic_time(:microsecond) - state.started_at
 
     if function_exported?(module, :handle_response_started, 2) do
+      handler_state = Agent.get(state.handler_agent, & &1)
+
       case module.handle_response_started(
              %{
                request_id: state.request_id,
@@ -188,10 +187,11 @@ defmodule Weir.ResponseStreamer do
                content_type: content_type,
                time_to_first_byte_us: ttfb
              },
-             state.handler_state
+             handler_state
            ) do
         {:ok, new_handler_state} ->
-          %{state | ttfb_notified: true, handler_state: new_handler_state}
+          Agent.update(state.handler_agent, fn _ -> new_handler_state end)
+          %{state | ttfb_notified: true}
       end
     else
       %{state | ttfb_notified: true}
