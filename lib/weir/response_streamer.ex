@@ -177,24 +177,28 @@ defmodule Weir.ResponseStreamer do
     ttfb = System.monotonic_time(:microsecond) - state.started_at
 
     if function_exported?(module, :handle_response_started, 2) do
-      handler_state = Agent.get(state.handler_agent, & &1)
-
-      case module.handle_response_started(
-             %{
-               request_id: state.request_id,
-               status: state.status,
-               headers: state.response_headers || [],
-               content_type: content_type,
-               time_to_first_byte_us: ttfb
-             },
-             handler_state
-           ) do
-        {:ok, new_handler_state} ->
-          Agent.update(state.handler_agent, fn _ -> new_handler_state end)
-          %{state | ttfb_notified: true}
-      end
+      call_response_started(state, module, content_type, ttfb)
     else
       %{state | ttfb_notified: true}
     end
+  end
+
+  defp call_response_started(state, module, content_type, ttfb) do
+    handler_state = Agent.get(state.handler_agent, & &1)
+
+    {:ok, new_handler_state} =
+      module.handle_response_started(
+        %{
+          request_id: state.request_id,
+          status: state.status,
+          headers: state.response_headers || [],
+          content_type: content_type,
+          time_to_first_byte_us: ttfb
+        },
+        handler_state
+      )
+
+    Agent.update(state.handler_agent, fn _ -> new_handler_state end)
+    %{state | ttfb_notified: true}
   end
 end

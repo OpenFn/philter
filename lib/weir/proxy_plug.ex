@@ -65,7 +65,11 @@ defmodule Weir.ProxyPlug do
 
   @impl true
   def init(opts) do
-    Keyword.fetch!(opts, :upstream)
+    unless Keyword.has_key?(opts, :upstream) do
+      raise ArgumentError,
+            "Weir.ProxyPlug requires the :upstream option (e.g., upstream: \"http://api.internal:4000\")"
+    end
+
     opts
   end
 
