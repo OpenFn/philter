@@ -132,7 +132,7 @@ defmodule Weir.Observation do
   - `:duration_us` - total microseconds
   - `:time_to_first_byte_us` - microseconds to first chunk (nil if no data)
   """
-  @spec finalize(t()) :: Weir.Observer.body_observation()
+  @spec finalize(t()) :: Weir.Handler.body_observation()
   def finalize(%__MODULE__{} = obs) do
     hash = obs.hash_state |> :crypto.hash_final() |> Base.encode16(case: :lower)
     body = finalize_body(obs)

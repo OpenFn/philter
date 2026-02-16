@@ -27,11 +27,13 @@ defmodule Weir.ResponseStreamer do
     :status,
     :headers_sent,
     :error,
-    :observer,
+    :handler,
     :request_id,
     :config,
     :response_headers,
-    :ttfb_notified
+    :ttfb_notified,
+    :handler_state,
+    :started_at
   ]
 
   @type t :: %__MODULE__{
@@ -40,11 +42,13 @@ defmodule Weir.ResponseStreamer do
           status: non_neg_integer() | nil,
           headers_sent: boolean(),
           error: term() | nil,
-          observer: {module(), keyword()} | nil,
+          handler: {module(), term()} | nil,
           request_id: term(),
           config: map() | nil,
           response_headers: [{String.t(), String.t()}] | nil,
-          ttfb_notified: boolean()
+          ttfb_notified: boolean(),
+          handler_state: term(),
+          started_at: integer() | nil
         }
 
   @doc "Creates new state with conn, observation agent, and options."
@@ -56,11 +60,13 @@ defmodule Weir.ResponseStreamer do
       status: nil,
       headers_sent: false,
       error: nil,
-      observer: Keyword.get(opts, :observer),
+      handler: Keyword.get(opts, :handler),
       request_id: Keyword.get(opts, :request_id),
       config: Keyword.get(opts, :config),
       response_headers: nil,
-      ttfb_notified: false
+      ttfb_notified: false,
+      handler_state: Keyword.get(opts, :handler_state),
+      started_at: Keyword.get(opts, :started_at)
     }
   end
 
@@ -77,7 +83,7 @@ defmodule Weir.ResponseStreamer do
     # Configure observation accumulation based on content type
     configure_accumulation(state, content_type)
 
-    # Notify observer of response start (TTFB)
+    # Notify handler of response start (TTFB)
     state = notify_response_started(state, content_type)
 
     updated_conn =
@@ -109,6 +115,9 @@ defmodule Weir.ResponseStreamer do
   @doc false
   @spec get_conn(t()) :: Plug.Conn.t()
   def get_conn(state), do: state.conn
+
+  @doc false
+  def get_handler_state(%__MODULE__{handler_state: state}), do: state
 
   @doc false
   @spec get_error(t()) :: term() | nil
@@ -163,24 +172,29 @@ defmodule Weir.ResponseStreamer do
     end)
   end
 
-  defp notify_response_started(%{observer: nil} = state, _content_type), do: state
-
+  defp notify_response_started(%{handler: nil} = state, _content_type), do: state
   defp notify_response_started(%{ttfb_notified: true} = state, _content_type), do: state
 
   defp notify_response_started(state, content_type) do
-    {module, _args} = state.observer
-    ttfb = System.monotonic_time(:microsecond)
+    {module, _args} = state.handler
+    ttfb = System.monotonic_time(:microsecond) - state.started_at
 
-    if function_exported?(module, :handle_response_started, 1) do
-      module.handle_response_started(%{
-        request_id: state.request_id,
-        status: state.status,
-        headers: state.response_headers || [],
-        content_type: content_type,
-        time_to_first_byte_us: ttfb
-      })
+    if function_exported?(module, :handle_response_started, 2) do
+      case module.handle_response_started(
+             %{
+               request_id: state.request_id,
+               status: state.status,
+               headers: state.response_headers || [],
+               content_type: content_type,
+               time_to_first_byte_us: ttfb
+             },
+             state.handler_state
+           ) do
+        {:ok, new_handler_state} ->
+          %{state | ttfb_notified: true, handler_state: new_handler_state}
+      end
+    else
+      %{state | ttfb_notified: true}
     end
-
-    %{state | ttfb_notified: true}
   end
 end

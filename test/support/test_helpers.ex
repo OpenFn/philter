@@ -60,58 +60,58 @@ defmodule Weir.TestHelpers do
   end
 
   @doc """
-  Creates a test observer module that captures callbacks.
+  Creates a test handler module that captures callbacks.
 
-  Returns the observer module and a function to get captured events.
+  Returns the handler module and a function to get captured events.
 
   ## Examples
 
-      {observer, get_events} = Weir.TestHelpers.test_observer()
+      {handler, get_events} = Weir.TestHelpers.test_handler()
 
-      # Use observer with Weir...
+      # Use handler with Weir...
 
       events = get_events.()
       assert length(events) == 2
   """
-  @spec test_observer() :: {module(), (-> list())}
-  def test_observer do
+  @spec test_handler() :: {module(), (-> list())}
+  def test_handler do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     # Generate unique module name
     module_name =
-      Module.concat([Weir.TestObserver, "Observer#{System.unique_integer([:positive])}"])
+      Module.concat([Weir.TestHandler, "Handler#{System.unique_integer([:positive])}"])
 
     defmodule_result =
       Module.create(
         module_name,
         quote do
-          use Weir.Observer
+          use Weir.Handler
 
           @impl true
-          def handle_request_started(metadata) do
+          def handle_request_started(metadata, state) do
             Agent.update(unquote(agent), fn events ->
               [{:request_started, metadata} | events]
             end)
 
-            :ok
+            {:ok, state}
           end
 
           @impl true
-          def handle_response_started(metadata) do
+          def handle_response_started(metadata, state) do
             Agent.update(unquote(agent), fn events ->
               [{:response_started, metadata} | events]
             end)
 
-            :ok
+            {:ok, state}
           end
 
           @impl true
-          def handle_response_finished(result) do
+          def handle_response_finished(result, state) do
             Agent.update(unquote(agent), fn events ->
               [{:response_finished, result} | events]
             end)
 
-            :ok
+            {:ok, state}
           end
         end,
         Macro.Env.location(__ENV__)

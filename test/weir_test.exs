@@ -3,36 +3,53 @@ defmodule WeirTest do
   import Plug.Test
   import Plug.Conn
 
-  defmodule TestObserver do
-    use Weir.Observer
+  defmodule TestHandler do
+    use Weir.Handler
 
     @impl true
-    def handle_request_started(metadata) do
-      # The test_pid is passed via the observer args, not in metadata
-      # We need to use a process dictionary or ETS to communicate
-      if pid = Process.get(:test_pid) do
-        send(pid, {:request_started, metadata})
-      end
-
-      :ok
+    def handle_request_started(metadata, state) do
+      send(state[:test_pid], {:request_started, metadata})
+      {:ok, state}
     end
 
     @impl true
-    def handle_response_started(metadata) do
-      if pid = Process.get(:test_pid) do
-        send(pid, {:response_started, metadata})
-      end
-
-      :ok
+    def handle_response_started(metadata, state) do
+      send(state[:test_pid], {:response_started, metadata})
+      {:ok, state}
     end
 
     @impl true
-    def handle_response_finished(result) do
-      if pid = Process.get(:test_pid) do
-        send(pid, {:response_finished, result})
-      end
+    def handle_response_finished(result, state) do
+      send(state[:test_pid], {:response_finished, result})
+      {:ok, state}
+    end
+  end
 
-      :ok
+  defmodule RejectingHandler do
+    use Weir.Handler
+
+    @impl true
+    def handle_request_started(_metadata, state) do
+      {:reject, 413, "Payload Too Large", state}
+    end
+
+    @impl true
+    def handle_response_finished(_result, state), do: {:ok, state}
+  end
+
+  defmodule TrackingRejectHandler do
+    use Weir.Handler
+
+    @impl true
+    def handle_request_started(_metadata, state) do
+      send(state[:test_pid], :request_rejected)
+      {:reject, 403, "Forbidden", state}
+    end
+
+    @impl true
+    def handle_response_finished(_result, state) do
+      send(state[:test_pid], :response_finished_called)
+      {:ok, state}
     end
   end
 
@@ -170,9 +187,7 @@ defmodule WeirTest do
       assert resp_obs.preview != nil
     end
 
-    test "invokes observer callbacks", %{bypass: bypass, upstream: upstream} do
-      Process.put(:test_pid, self())
-
+    test "invokes handler callbacks", %{bypass: bypass, upstream: upstream} do
       Bypass.expect(bypass, "GET", "/observed", fn conn ->
         conn
         |> put_resp_header("content-type", "text/plain")
@@ -184,7 +199,7 @@ defmodule WeirTest do
         |> Weir.proxy(
           upstream: upstream,
           finch_name: Weir.TestFinch,
-          observer: TestObserver,
+          handler: {TestHandler, %{test_pid: self()}},
           request_id: "test-123"
         )
 
@@ -247,16 +262,14 @@ defmodule WeirTest do
       assert conn.status == 200
     end
 
-    test "invokes observer on error with error info", %{upstream: _upstream} do
-      Process.put(:test_pid, self())
-
+    test "invokes handler on error with error info", %{upstream: _upstream} do
       # Connect to non-existent server
       conn =
         conn(:get, "/test")
         |> Weir.proxy(
           upstream: "http://localhost:59999",
           finch_name: Weir.TestFinch,
-          observer: TestObserver,
+          handler: {TestHandler, %{test_pid: self()}},
           request_id: "error-test"
         )
 
@@ -268,6 +281,65 @@ defmodule WeirTest do
       assert result.request_id == "error-test"
       assert result.error != nil
       assert result.status == nil
+    end
+
+    test "rejects proxy with handler-controlled status and body", %{upstream: upstream} do
+      conn =
+        conn(:get, "/test")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          handler: {RejectingHandler, %{}}
+        )
+
+      assert conn.status == 413
+      assert conn.resp_body == "Payload Too Large"
+    end
+
+    test "handle_response_finished is not called when request is rejected", %{
+      upstream: upstream
+    } do
+      conn =
+        conn(:get, "/test")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          handler: {TrackingRejectHandler, %{test_pid: self()}}
+        )
+
+      assert conn.status == 403
+      assert_receive :request_rejected
+      refute_receive :response_finished_called, 100
+    end
+
+    test "time_to_first_byte_us is relative to request start", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/ttfb", fn conn ->
+        # Small delay to ensure TTFB > 0
+        Process.sleep(10)
+
+        conn
+        |> put_resp_header("content-type", "text/plain")
+        |> send_resp(200, "hello")
+      end)
+
+      conn =
+        conn(:get, "/ttfb")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          handler: {TestHandler, %{test_pid: self()}},
+          request_id: "ttfb-test"
+        )
+
+      assert conn.status == 200
+
+      assert_receive {:response_started, resp_meta}
+      assert resp_meta.time_to_first_byte_us > 0
+      # If it were absolute monotonic time, it would be billions of microseconds
+      assert resp_meta.time_to_first_byte_us < 5_000_000
     end
   end
 

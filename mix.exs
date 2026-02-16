@@ -86,7 +86,7 @@ defmodule Weir.MixProject do
       groups_for_modules: [
         Core: [Weir, Weir.ProxyPlug],
         Configuration: [Weir.Config],
-        Observation: [Weir.Observation, Weir.Observer],
+        Observation: [Weir.Observation, Weir.Handler],
         Internal: [Weir.BodyStream, Weir.ResponseStreamer, Weir.UTF8]
       ],
       nest_modules_by_prefix: [Weir]

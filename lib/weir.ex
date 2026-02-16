@@ -49,24 +49,24 @@ defmodule Weir do
         receive_timeout: 30_000,
         max_payload_size: 5_242_880
 
-  ## Observer Callbacks
+  ## Handler Callbacks
 
-  Implement `Weir.Observer` to hook into the proxy lifecycle:
+  Implement `Weir.Handler` to hook into the proxy lifecycle:
 
-    * `handle_request_started/1` - Called before sending to upstream
-    * `handle_response_started/1` - Called on first byte received (TTFB)
-    * `handle_response_finished/1` - Called when complete, with body observations
+    * `handle_request_started/2` - Called before sending to upstream
+    * `handle_response_started/2` - Called on first byte received (TTFB)
+    * `handle_response_finished/2` - Called when complete, with body observations
 
   Example:
 
-      defmodule MyObserver do
-        use Weir.Observer
+      defmodule MyHandler do
+        use Weir.Handler
 
         @impl true
-        def handle_response_finished(result) do
+        def handle_response_finished(result, state) do
           # result contains :request_observation and :response_observation
           # each with :hash, :size, :body, :preview, :duration_us
-          :ok
+          {:ok, state}
         end
       end
 
@@ -93,7 +93,7 @@ defmodule Weir do
   @type proxy_opts :: [
           upstream: String.t(),
           path: String.t() | (Plug.Conn.t() -> String.t()),
-          observer: module() | {module(), keyword()},
+          handler: module() | {module(), term()},
           finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
@@ -112,10 +112,10 @@ defmodule Weir do
       # Basic proxy
       Weir.proxy(conn, upstream: "http://api.example.com")
 
-      # With observer for logging/persistence
+      # With handler for logging/persistence
       Weir.proxy(conn,
         upstream: "http://api.example.com",
-        observer: {MyObserver, user_id: user.id}
+        handler: {MyHandler, %{user_id: user.id}}
       )
 
       # Override timeout for slow endpoints
@@ -128,8 +128,8 @@ defmodule Weir do
 
     * `:upstream` - Base URL of the upstream server. **Required.**
 
-    * `:observer` - Observer module or `{module, args}` tuple for lifecycle callbacks.
-      See `Weir.Observer` for the callback interface.
+    * `:handler` - Handler module or `{module, state}` tuple for lifecycle
+      callbacks. See `Weir.Handler` for the callback interface.
 
     * `:request_id` - Correlation ID for tracing. Default: auto-generated UUID.
 
@@ -159,13 +159,13 @@ defmodule Weir do
   ## Error Handling
 
   On upstream errors, returns `502 Bad Gateway`. On timeouts, returns `504 Gateway Timeout`.
-  The observer's `handle_response_finished/1` is still called with the `:error` field set.
+  The handler's `handle_response_finished/2` is still called with the `:error` field set.
   """
   @spec proxy(Plug.Conn.t(), proxy_opts()) :: Plug.Conn.t()
   def proxy(conn, opts) do
     upstream = Keyword.fetch!(opts, :upstream)
     config = Config.resolve(opts)
-    observer = resolve_observer(opts)
+    handler = resolve_handler(opts)
     request_id = Keyword.get(opts, :request_id, generate_request_id())
 
     started_at = System.monotonic_time(:microsecond)
@@ -173,122 +173,143 @@ defmodule Weir do
     upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
 
-    # Notify observer of request start
-    notify_request_started(observer, %{
-      request_id: request_id,
-      upstream_url: upstream_url,
-      method: conn.method,
-      headers: conn.req_headers,
-      content_type: req_content_type,
-      started_at: started_at
-    })
+    # Notify handler of request start
+    case notify_request_started(handler, %{
+           request_id: request_id,
+           upstream_url: upstream_url,
+           method: conn.method,
+           headers: conn.req_headers,
+           content_type: req_content_type,
+           started_at: started_at
+         }) do
+      {:ok, handler_state} ->
+        # Determine if request body should be accumulated
+        req_accumulate? =
+          Config.content_type_persistable?(
+            req_content_type,
+            config.persistable_content_types
+          )
 
-    # Determine if request body should be accumulated
-    req_accumulate? =
-      Config.content_type_persistable?(req_content_type, config.persistable_content_types)
+        # Get request body stream with observation
+        {request_body, req_obs_agent} =
+          get_request_body(conn,
+            accumulate?: req_accumulate?,
+            max_size: config.max_payload_size
+          )
 
-    # Get request body stream with observation
-    {request_body, req_obs_agent} =
-      get_request_body(conn, accumulate?: req_accumulate?, max_size: config.max_payload_size)
+        # Build Finch request
+        request =
+          Finch.build(
+            method_atom(conn.method),
+            upstream_url,
+            filter_request_headers(conn.req_headers, request_id),
+            request_body
+          )
 
-    # Build Finch request
-    request =
-      Finch.build(
-        method_atom(conn.method),
-        upstream_url,
-        filter_request_headers(conn.req_headers, request_id),
-        request_body
-      )
+        # Initialize response observation (will be configured when headers arrive)
+        {:ok, resp_obs_agent} =
+          Agent.start_link(fn ->
+            # Start with no accumulation, will be updated when we see Content-Type
+            Observation.new(accumulate?: false, max_size: config.max_payload_size)
+          end)
 
-    # Initialize response observation (will be configured when headers arrive)
-    {:ok, resp_obs_agent} =
-      Agent.start_link(fn ->
-        # Start with no accumulation, will be updated when we see Content-Type
-        Observation.new(accumulate?: false, max_size: config.max_payload_size)
-      end)
+        # Stream request and response
+        initial_state =
+          ResponseStreamer.new(conn, resp_obs_agent,
+            handler: handler,
+            request_id: request_id,
+            config: config,
+            handler_state: handler_state,
+            started_at: started_at
+          )
 
-    # Stream request and response
-    initial_state =
-      ResponseStreamer.new(conn, resp_obs_agent,
-        observer: observer,
-        request_id: request_id,
-        config: config
-      )
+        result =
+          Finch.stream_while(
+            request,
+            config.finch_name,
+            initial_state,
+            fn message, state ->
+              ResponseStreamer.handle_message(message, state)
+            end,
+            receive_timeout: config.receive_timeout
+          )
 
-    result =
-      Finch.stream_while(
-        request,
-        config.finch_name,
-        initial_state,
-        fn message, state -> ResponseStreamer.handle_message(message, state) end,
-        receive_timeout: config.receive_timeout
-      )
+        case result do
+          {:ok, final_state} ->
+            conn = ResponseStreamer.get_conn(final_state)
+            final_handler_state = ResponseStreamer.get_handler_state(final_state)
 
-    case result do
-      {:ok, final_state} ->
-        conn = ResponseStreamer.get_conn(final_state)
+            # Finalize observations
+            req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
+            resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
+            Agent.stop(resp_obs_agent)
 
-        # Finalize observations
-        req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
-        resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
-        Agent.stop(resp_obs_agent)
+            # Notify handler of completion
+            notify_response_finished(
+              handler,
+              %{
+                request_id: request_id,
+                request_observation: req_observation,
+                response_observation: resp_observation,
+                error: nil,
+                upstream_url: upstream_url,
+                method: conn.method,
+                status: conn.status,
+                duration_us: System.monotonic_time(:microsecond) - started_at
+              },
+              final_handler_state
+            )
 
-        # Notify observer of completion
-        notify_response_finished(observer, %{
-          request_id: request_id,
-          request_observation: req_observation,
-          response_observation: resp_observation,
-          error: nil,
-          upstream_url: upstream_url,
-          method: conn.method,
-          status: conn.status,
-          duration_us: System.monotonic_time(:microsecond) - started_at
-        })
+            # Store observations in conn private
+            conn
+            |> put_private(:weir_request_observation, req_observation)
+            |> put_private(:weir_response_observation, resp_observation)
 
-        # Store observations in conn private
-        conn
-        |> put_private(:weir_request_observation, req_observation)
-        |> put_private(:weir_response_observation, resp_observation)
+          {:error, %Finch.Error{reason: reason}, _acc}
+          when reason in @timeout_reasons ->
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+              request_id: request_id,
+              upstream_url: upstream_url,
+              method: conn.method,
+              started_at: started_at,
+              error: {:timeout, reason},
+              status: 504,
+              body: "Gateway Timeout"
+            })
 
-      {:error, %Finch.Error{reason: reason}, _acc} when reason in @timeout_reasons ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: {:timeout, reason},
-          status: 504,
-          body: "Gateway Timeout"
-        })
+          {:error, %Mint.TransportError{reason: reason}, _acc}
+          when reason in @timeout_reasons ->
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+              request_id: request_id,
+              upstream_url: upstream_url,
+              method: conn.method,
+              started_at: started_at,
+              error: {:timeout, reason},
+              status: 504,
+              body: "Gateway Timeout"
+            })
 
-      {:error, %Mint.TransportError{reason: reason}, _acc} when reason in @timeout_reasons ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: {:timeout, reason},
-          status: 504,
-          body: "Gateway Timeout"
-        })
+          {:error, error, _acc} ->
+            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, %{
+              request_id: request_id,
+              upstream_url: upstream_url,
+              method: conn.method,
+              started_at: started_at,
+              error: error,
+              status: 502,
+              body: "Bad Gateway"
+            })
+        end
 
-      {:error, error, _acc} ->
-        handle_error(conn, req_obs_agent, resp_obs_agent, observer, %{
-          request_id: request_id,
-          upstream_url: upstream_url,
-          method: conn.method,
-          started_at: started_at,
-          error: error,
-          status: 502,
-          body: "Bad Gateway"
-        })
+      {:reject, status, body, _handler_state} ->
+        conn |> send_resp(status, body) |> halt()
     end
   end
 
   # Private functions
 
-  defp resolve_observer(opts) do
-    case Keyword.get(opts, :observer) do
+  defp resolve_handler(opts) do
+    case Keyword.get(opts, :handler) do
       nil -> nil
       {module, args} when is_atom(module) -> {module, args}
       module when is_atom(module) -> {module, []}
@@ -353,40 +374,44 @@ defmodule Weir do
     method |> String.downcase() |> String.to_existing_atom()
   end
 
-  defp handle_error(conn, req_obs_agent, resp_obs_agent, observer, info) do
+  defp handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_state, info) do
     # Get partial observations
     req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
     resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
     Agent.stop(resp_obs_agent)
 
-    # Notify observer
-    notify_response_finished(observer, %{
-      request_id: info.request_id,
-      request_observation: req_observation,
-      response_observation: resp_observation,
-      error: info.error,
-      upstream_url: info.upstream_url,
-      method: info.method,
-      status: nil,
-      duration_us: System.monotonic_time(:microsecond) - info.started_at
-    })
+    # Notify handler
+    notify_response_finished(
+      handler,
+      %{
+        request_id: info.request_id,
+        request_observation: req_observation,
+        response_observation: resp_observation,
+        error: info.error,
+        upstream_url: info.upstream_url,
+        method: info.method,
+        status: nil,
+        duration_us: System.monotonic_time(:microsecond) - info.started_at
+      },
+      handler_state
+    )
 
     conn |> send_resp(info.status, info.body) |> halt()
   end
 
-  defp notify_request_started(nil, _metadata), do: :ok
+  defp notify_request_started(nil, _metadata), do: {:ok, nil}
 
-  defp notify_request_started({module, _args}, metadata) do
-    if function_exported?(module, :handle_request_started, 1) do
-      module.handle_request_started(metadata)
+  defp notify_request_started({module, args}, metadata) do
+    if function_exported?(module, :handle_request_started, 2) do
+      module.handle_request_started(metadata, args)
     else
-      :ok
+      {:ok, args}
     end
   end
 
-  defp notify_response_finished(nil, _result), do: :ok
+  defp notify_response_finished(nil, _result, _state), do: {:ok, nil}
 
-  defp notify_response_finished({module, _args}, result) do
-    module.handle_response_finished(result)
+  defp notify_response_finished({module, _args}, result, state) do
+    module.handle_response_finished(result, state)
   end
 end
