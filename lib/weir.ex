@@ -75,7 +75,7 @@ defmodule Weir do
   import Plug.Conn
   require Logger
 
-  alias Weir.{Config, Observation, ResponseStreamer}
+  alias Weir.{Config, Observer}
 
   @timeout_reasons [:timeout, :connect_timeout, {:closed, :timeout}]
 
@@ -185,21 +185,21 @@ defmodule Weir do
            started_at: started_at
          }) do
       {:ok, handler_state} ->
-        {:ok, handler_agent} = Agent.start_link(fn -> handler_state end)
-
-        # Determine if request body should be accumulated
+        # Start Observer for request/response body observation
         req_accumulate? =
           Config.content_type_persistable?(
             req_content_type,
             config.persistable_content_types
           )
 
-        # Get request body stream with observation
-        {request_body, req_obs_agent} =
-          get_request_body(conn,
-            accumulate?: req_accumulate?,
-            max_size: config.max_payload_size
+        {:ok, observer} =
+          Observer.start_link(
+            config: config,
+            req_accumulate?: req_accumulate?
           )
+
+        # Build request body with observer callback
+        request_body = build_request_body(conn, observer)
 
         # Build Finch request
         request =
@@ -210,67 +210,61 @@ defmodule Weir do
             request_body
           )
 
-        # Initialize response observation (will be configured when headers arrive)
-        {:ok, resp_obs_agent} =
-          Agent.start_link(fn ->
-            # Start with no accumulation, will be updated when we see Content-Type
-            Observation.new(accumulate?: false, max_size: config.max_payload_size)
-          end)
-
-        # Stream request and response
-        initial_state =
-          ResponseStreamer.new(conn, resp_obs_agent,
-            handler: handler,
-            config: config,
-            handler_agent: handler_agent,
-            started_at: started_at
-          )
+        # Stream request and response with plain map accumulator
+        acc = %{
+          conn: conn,
+          handler: if(handler, do: {elem(handler, 0), handler_state}, else: nil),
+          observer: observer,
+          status: nil,
+          started_at: started_at,
+          error: nil
+        }
 
         result =
           Finch.stream_while(
             request,
             config.finch_name,
-            initial_state,
-            fn message, state ->
-              ResponseStreamer.handle_message(message, state)
-            end,
+            acc,
+            &handle_stream_message/2,
             receive_timeout: config.receive_timeout
           )
 
         case result do
-          {:ok, final_state} ->
-            conn = ResponseStreamer.get_conn(final_state)
-            final_handler_state = Agent.get(handler_agent, & &1)
+          {:ok, acc} ->
+            observations = Observer.finalize(observer)
 
-            # Finalize observations
-            req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
-            resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
-            Agent.stop(resp_obs_agent)
-            Agent.stop(handler_agent)
+            handler_state =
+              if acc.handler, do: elem(acc.handler, 1), else: nil
 
             # Notify handler of completion
             notify_response_finished(
               handler,
               %{
-                request_observation: req_observation,
-                response_observation: resp_observation,
+                request_observation: observations.request,
+                response_observation: observations.response,
                 error: nil,
                 upstream_url: upstream_url,
-                method: conn.method,
-                status: conn.status,
+                method: acc.conn.method,
+                status: acc.conn.status,
                 duration_us: System.monotonic_time(:microsecond) - started_at
               },
-              final_handler_state
+              handler_state
             )
 
             # Store observations in conn private
-            conn
-            |> put_private(:weir_request_observation, req_observation)
-            |> put_private(:weir_response_observation, resp_observation)
+            acc.conn
+            |> put_private(
+              :weir_request_observation,
+              observations.request
+            )
+            |> put_private(
+              :weir_response_observation,
+              observations.response
+            )
 
-          {:error, %Finch.Error{reason: reason}, _acc}
+          {:error, %Finch.Error{reason: reason}, acc}
           when reason in @timeout_reasons ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
+            handle_error(acc, handler, %{
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -279,9 +273,9 @@ defmodule Weir do
               body: "Gateway Timeout"
             })
 
-          {:error, %Mint.TransportError{reason: reason}, _acc}
+          {:error, %Mint.TransportError{reason: reason}, acc}
           when reason in @timeout_reasons ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
+            handle_error(acc, handler, %{
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -290,8 +284,8 @@ defmodule Weir do
               body: "Gateway Timeout"
             })
 
-          {:error, error, _acc} ->
-            handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
+          {:error, error, acc} ->
+            handle_error(acc, handler, %{
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -303,6 +297,69 @@ defmodule Weir do
 
       {:reject, status, body, _handler_state} ->
         conn |> send_resp(status, body) |> halt()
+    end
+  end
+
+  # Stream message handlers (replaces ResponseStreamer)
+
+  defp handle_stream_message({:status, status}, acc) do
+    {:cont, %{acc | status: status}}
+  end
+
+  defp handle_stream_message({:headers, headers}, acc) do
+    filtered = filter_response_headers(headers)
+    content_type = get_content_type(headers)
+
+    # Observer reconfigures response accumulation
+    Observer.response_started(acc.observer, headers)
+
+    # Handler callback (synchronous, in caller process)
+    acc = notify_handler_response_started(acc, headers, content_type)
+
+    conn =
+      acc.conn
+      |> apply_resp_headers(filtered)
+      |> send_chunked(acc.status)
+
+    {:cont, %{acc | conn: conn}}
+  end
+
+  defp handle_stream_message({:data, chunk}, acc) do
+    Observer.response_chunk(acc.observer, chunk)
+
+    case chunk(acc.conn, chunk) do
+      {:ok, conn} -> {:cont, %{acc | conn: conn}}
+      {:error, reason} -> {:halt, %{acc | error: reason}}
+    end
+  end
+
+  defp handle_stream_message({:trailers, _}, acc), do: {:cont, acc}
+
+  # Handler response_started notification
+
+  defp notify_handler_response_started(%{handler: nil} = acc, _headers, _ct),
+    do: acc
+
+  defp notify_handler_response_started(acc, headers, content_type) do
+    {module, handler_state} = acc.handler
+
+    if function_exported?(module, :handle_response_started, 2) do
+      ttfb = System.monotonic_time(:microsecond) - acc.started_at
+
+      {:ok, new_state} =
+        module.handle_response_started(
+          %{
+            status: acc.status,
+            headers: headers,
+            content_type: content_type,
+            time_to_first_byte_us: ttfb
+          },
+          handler_state
+        )
+
+      %{acc | handler: {module, new_state}}
+    else
+      acc
     end
   end
 
@@ -343,25 +400,31 @@ defmodule Weir do
     end
   end
 
-  defp get_request_body(conn, opts) do
+  defp build_request_body(conn, observer) do
     case get_req_header(conn, "content-length") do
       ["0"] ->
-        {{:stream, []}, start_empty_observation(opts)}
+        {:stream, []}
 
       [] ->
         case get_req_header(conn, "transfer-encoding") do
-          ["chunked"] -> Weir.BodyStream.from_conn_with_observation(conn, opts)
-          _ -> {{:stream, []}, start_empty_observation(opts)}
+          ["chunked"] ->
+            Weir.BodyStream.from_conn(conn,
+              on_chunk: fn chunk ->
+                Observer.request_chunk(observer, chunk)
+              end
+            )
+
+          _ ->
+            {:stream, []}
         end
 
       _ ->
-        Weir.BodyStream.from_conn_with_observation(conn, opts)
+        Weir.BodyStream.from_conn(conn,
+          on_chunk: fn chunk ->
+            Observer.request_chunk(observer, chunk)
+          end
+        )
     end
-  end
-
-  defp start_empty_observation(opts) do
-    {:ok, agent} = Agent.start_link(fn -> Observation.new(opts) end)
-    agent
   end
 
   defp filter_request_headers(headers) do
@@ -372,25 +435,34 @@ defmodule Weir do
     |> Enum.map(fn {key, value} -> {String.downcase(key), value} end)
   end
 
+  defp filter_response_headers(headers) do
+    headers
+    |> Enum.reject(fn {key, _} ->
+      key = String.downcase(key)
+      key in @hop_by_hop_headers or key == "content-length"
+    end)
+    |> Enum.map(fn {key, value} -> {String.downcase(key), value} end)
+  end
+
+  defp apply_resp_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {key, value}, conn ->
+      put_resp_header(conn, String.downcase(key), value)
+    end)
+  end
+
   defp method_atom(method) do
     method |> String.downcase() |> String.to_existing_atom()
   end
 
-  defp handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, info) do
-    # Get partial observations
-    req_observation = Weir.BodyStream.finalize_observation(req_obs_agent)
-    resp_observation = Agent.get(resp_obs_agent, &Observation.finalize/1)
-    Agent.stop(resp_obs_agent)
+  defp handle_error(acc, handler, info) do
+    observations = Observer.finalize(acc.observer)
+    handler_state = if acc.handler, do: elem(acc.handler, 1), else: nil
 
-    handler_state = Agent.get(handler_agent, & &1)
-    Agent.stop(handler_agent)
-
-    # Notify handler
     notify_response_finished(
       handler,
       %{
-        request_observation: req_observation,
-        response_observation: resp_observation,
+        request_observation: observations.request,
+        response_observation: observations.response,
         error: info.error,
         upstream_url: info.upstream_url,
         method: info.method,
@@ -400,7 +472,7 @@ defmodule Weir do
       handler_state
     )
 
-    conn |> send_resp(info.status, info.body) |> halt()
+    acc.conn |> send_resp(info.status, info.body) |> halt()
   end
 
   defp notify_request_started(nil, _metadata), do: {:ok, nil}

@@ -51,37 +51,4 @@ defmodule Weir.BodyStreamTest do
       assert chunks == [] or chunks == [""]
     end
   end
-
-  describe "from_conn_with_observation/2" do
-    test "observes chunks and computes hash" do
-      body = "test body content"
-      conn = conn(:post, "/", body)
-
-      {{:stream, stream}, obs_agent} = BodyStream.from_conn_with_observation(conn)
-      # Consume the stream
-      Enum.to_list(stream)
-
-      observation = BodyStream.finalize_observation(obs_agent)
-
-      expected_hash = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
-      assert observation.hash == expected_hash
-      assert observation.size == byte_size(body)
-      assert observation.preview == body
-    end
-
-    test "captures preview for large body" do
-      # Create 100KB body
-      body = String.duplicate("x", 100_000)
-      conn = conn(:post, "/", body)
-
-      {{:stream, stream}, obs_agent} = BodyStream.from_conn_with_observation(conn)
-      Enum.to_list(stream)
-
-      observation = BodyStream.finalize_observation(obs_agent)
-
-      assert observation.size == 100_000
-      # Preview capped at 64KB
-      assert byte_size(observation.preview) == 64 * 1024
-    end
-  end
 end
