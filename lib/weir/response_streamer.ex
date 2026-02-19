@@ -28,7 +28,6 @@ defmodule Weir.ResponseStreamer do
     :headers_sent,
     :error,
     :handler,
-    :request_id,
     :config,
     :response_headers,
     :ttfb_notified,
@@ -43,7 +42,6 @@ defmodule Weir.ResponseStreamer do
           headers_sent: boolean(),
           error: term() | nil,
           handler: {module(), term()} | nil,
-          request_id: term(),
           config: map() | nil,
           response_headers: [{String.t(), String.t()}] | nil,
           ttfb_notified: boolean(),
@@ -61,7 +59,6 @@ defmodule Weir.ResponseStreamer do
       headers_sent: false,
       error: nil,
       handler: Keyword.get(opts, :handler),
-      request_id: Keyword.get(opts, :request_id),
       config: Keyword.get(opts, :config),
       response_headers: nil,
       ttfb_notified: false,
@@ -189,7 +186,6 @@ defmodule Weir.ResponseStreamer do
     {:ok, new_handler_state} =
       module.handle_response_started(
         %{
-          request_id: state.request_id,
           status: state.status,
           headers: state.response_headers || [],
           content_type: content_type,

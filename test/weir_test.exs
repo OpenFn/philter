@@ -199,67 +199,93 @@ defmodule WeirTest do
         |> Weir.proxy(
           upstream: upstream,
           finch_name: Weir.TestFinch,
-          handler: {TestHandler, %{test_pid: self()}},
-          request_id: "test-123"
+          handler: {TestHandler, %{test_pid: self()}}
         )
 
       assert conn.status == 200
 
       # Should receive request_started callback
       assert_receive {:request_started, req_meta}
-      assert req_meta.request_id == "test-123"
       assert req_meta.method == "GET"
       assert req_meta.upstream_url =~ "/observed"
 
       # Should receive response_started callback
       assert_receive {:response_started, resp_meta}
-      assert resp_meta.request_id == "test-123"
       assert resp_meta.status == 200
 
       # Should receive response_finished callback
       assert_receive {:response_finished, result}
-      assert result.request_id == "test-123"
       assert result.error == nil
       assert result.request_observation.hash != nil
       assert result.response_observation.hash != nil
     end
 
-    test "injects x-request-id header into upstream request", %{
-      bypass: bypass,
-      upstream: upstream
-    } do
-      Bypass.expect(bypass, "GET", "/rid", fn conn ->
-        [request_id] = Plug.Conn.get_req_header(conn, "x-request-id")
-        assert byte_size(request_id) > 0
-        Plug.Conn.send_resp(conn, 200, request_id)
-      end)
-
-      conn =
-        conn(:get, "/rid")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
-
-      assert conn.status == 200
-      assert byte_size(conn.resp_body) > 0
-    end
-
-    test "propagates caller-supplied request_id as x-request-id header", %{
-      bypass: bypass,
-      upstream: upstream
-    } do
-      Bypass.expect(bypass, "GET", "/rid", fn conn ->
-        assert Plug.Conn.get_req_header(conn, "x-request-id") == ["custom-id-42"]
+    test "uses caller-supplied headers when provided", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "POST", "/api", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test"]
+        assert Plug.Conn.get_req_header(conn, "content-type") == ["application/json"]
+        # Caller-supplied headers are sent as-is, no hop-by-hop filtering
         Plug.Conn.send_resp(conn, 200, "ok")
       end)
 
       conn =
-        conn(:get, "/rid")
+        conn(:post, "/api", "")
+        # These conn headers should be ignored when :headers is provided
+        |> put_req_header("x-should-not-appear", "ignored")
         |> Weir.proxy(
           upstream: upstream,
           finch_name: Weir.TestFinch,
-          request_id: "custom-id-42"
+          headers: [
+            {"authorization", "Bearer test"},
+            {"content-type", "application/json"}
+          ]
         )
 
       assert conn.status == 200
+    end
+
+    test "filters conn.req_headers when no headers option provided", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/headers", fn conn ->
+        # Custom headers should be forwarded (lowercased)
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["value"]
+        # Hop-by-hop headers should be stripped
+        assert Plug.Conn.get_req_header(conn, "connection") == []
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/headers")
+        |> put_req_header("x-custom", "value")
+        |> put_req_header("connection", "keep-alive")
+        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+
+      assert conn.status == 200
+    end
+
+    test "passes caller-supplied headers to handle_request_started metadata", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/meta", fn conn ->
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      custom_headers = [{"authorization", "Bearer tok"}, {"x-custom", "val"}]
+
+      _conn =
+        conn(:get, "/meta")
+        |> Weir.proxy(
+          upstream: upstream,
+          finch_name: Weir.TestFinch,
+          handler: {TestHandler, %{test_pid: self()}},
+          headers: custom_headers
+        )
+
+      assert_receive {:request_started, req_meta}
+      assert req_meta.headers == custom_headers
     end
 
     test "invokes handler on error with error info", %{upstream: _upstream} do
@@ -269,8 +295,7 @@ defmodule WeirTest do
         |> Weir.proxy(
           upstream: "http://localhost:59999",
           finch_name: Weir.TestFinch,
-          handler: {TestHandler, %{test_pid: self()}},
-          request_id: "error-test"
+          handler: {TestHandler, %{test_pid: self()}}
         )
 
       assert conn.status == 502
@@ -278,7 +303,6 @@ defmodule WeirTest do
 
       # Should still receive response_finished with error
       assert_receive {:response_finished, result}
-      assert result.request_id == "error-test"
       assert result.error != nil
       assert result.status == nil
     end
@@ -330,8 +354,7 @@ defmodule WeirTest do
         |> Weir.proxy(
           upstream: upstream,
           finch_name: Weir.TestFinch,
-          handler: {TestHandler, %{test_pid: self()}},
-          request_id: "ttfb-test"
+          handler: {TestHandler, %{test_pid: self()}}
         )
 
       assert conn.status == 200

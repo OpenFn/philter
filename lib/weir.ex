@@ -94,11 +94,11 @@ defmodule Weir do
           upstream: String.t(),
           path: String.t() | (Plug.Conn.t() -> String.t()),
           handler: module() | {module(), term()},
+          headers: [{String.t(), String.t()}],
           finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
-          persistable_content_types: [String.t()],
-          request_id: term()
+          persistable_content_types: [String.t()]
         ]
 
   @doc """
@@ -131,7 +131,10 @@ defmodule Weir do
     * `:handler` - Handler module or `{module, state}` tuple for lifecycle
       callbacks. See `Weir.Handler` for the callback interface.
 
-    * `:request_id` - Correlation ID for tracing. Default: auto-generated UUID.
+    * `:headers` - Pre-assembled outbound request headers as `[{name, value}]`
+      tuples. When provided, these headers are sent as-is to the upstream
+      (no filtering of `conn.req_headers`, no hop-by-hop removal). When omitted,
+      `conn.req_headers` are filtered (hop-by-hop removed, keys lowercased).
 
     * `:finch_name` - Finch pool name. Default: configured value (see `Weir.Config`).
 
@@ -166,19 +169,18 @@ defmodule Weir do
     upstream = Keyword.fetch!(opts, :upstream)
     config = Config.resolve(opts)
     handler = resolve_handler(opts)
-    request_id = Keyword.get(opts, :request_id, generate_request_id())
 
     started_at = System.monotonic_time(:microsecond)
     path = resolve_path(opts, conn)
     upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
+    outbound_headers = resolve_outbound_headers(opts, conn)
 
     # Notify handler of request start
     case notify_request_started(handler, %{
-           request_id: request_id,
            upstream_url: upstream_url,
            method: conn.method,
-           headers: conn.req_headers,
+           headers: outbound_headers,
            content_type: req_content_type,
            started_at: started_at
          }) do
@@ -204,7 +206,7 @@ defmodule Weir do
           Finch.build(
             method_atom(conn.method),
             upstream_url,
-            filter_request_headers(conn.req_headers, request_id),
+            outbound_headers,
             request_body
           )
 
@@ -219,7 +221,6 @@ defmodule Weir do
         initial_state =
           ResponseStreamer.new(conn, resp_obs_agent,
             handler: handler,
-            request_id: request_id,
             config: config,
             handler_agent: handler_agent,
             started_at: started_at
@@ -251,7 +252,6 @@ defmodule Weir do
             notify_response_finished(
               handler,
               %{
-                request_id: request_id,
                 request_observation: req_observation,
                 response_observation: resp_observation,
                 error: nil,
@@ -271,7 +271,6 @@ defmodule Weir do
           {:error, %Finch.Error{reason: reason}, _acc}
           when reason in @timeout_reasons ->
             handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
-              request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -283,7 +282,6 @@ defmodule Weir do
           {:error, %Mint.TransportError{reason: reason}, _acc}
           when reason in @timeout_reasons ->
             handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
-              request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -294,7 +292,6 @@ defmodule Weir do
 
           {:error, error, _acc} ->
             handle_error(conn, req_obs_agent, resp_obs_agent, handler, handler_agent, %{
-              request_id: request_id,
               upstream_url: upstream_url,
               method: conn.method,
               started_at: started_at,
@@ -319,8 +316,11 @@ defmodule Weir do
     end
   end
 
-  defp generate_request_id do
-    :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
+  defp resolve_outbound_headers(opts, conn) do
+    case Keyword.get(opts, :headers) do
+      nil -> filter_request_headers(conn.req_headers)
+      headers when is_list(headers) -> headers
+    end
   end
 
   defp resolve_path(opts, conn) do
@@ -364,13 +364,12 @@ defmodule Weir do
     agent
   end
 
-  defp filter_request_headers(headers, request_id) do
+  defp filter_request_headers(headers) do
     headers
     |> Enum.reject(fn {key, _} ->
       String.downcase(key) in @hop_by_hop_headers
     end)
     |> Enum.map(fn {key, value} -> {String.downcase(key), value} end)
-    |> List.keystore("x-request-id", 0, {"x-request-id", request_id})
   end
 
   defp method_atom(method) do
@@ -390,7 +389,6 @@ defmodule Weir do
     notify_response_finished(
       handler,
       %{
-        request_id: info.request_id,
         request_observation: req_observation,
         response_observation: resp_observation,
         error: info.error,

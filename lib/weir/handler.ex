@@ -41,7 +41,6 @@ defmodule Weir.Handler do
   Metadata passed to handle_request_started/2.
   """
   @type request_metadata :: %{
-          required(:request_id) => term(),
           required(:upstream_url) => String.t(),
           required(:method) => String.t(),
           required(:headers) => [{String.t(), String.t()}],
@@ -53,7 +52,6 @@ defmodule Weir.Handler do
   Metadata passed to handle_response_started/2.
   """
   @type response_metadata :: %{
-          required(:request_id) => term(),
           required(:status) => non_neg_integer(),
           required(:headers) => [{String.t(), String.t()}],
           required(:content_type) => String.t() | nil,
@@ -86,7 +84,6 @@ defmodule Weir.Handler do
   that occurred during proxying.
   """
   @type finished_result :: %{
-          required(:request_id) => term(),
           required(:request_observation) => body_observation(),
           required(:response_observation) => body_observation(),
           required(:error) => term() | nil,
