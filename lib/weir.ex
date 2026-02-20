@@ -233,8 +233,7 @@ defmodule Weir do
           {:ok, acc} ->
             observations = Observer.finalize(observer)
 
-            handler_state =
-              if acc.handler, do: elem(acc.handler, 1), else: nil
+            handler_state = handler_state(acc)
 
             # Notify handler of completion
             notify_response_finished(
@@ -454,9 +453,12 @@ defmodule Weir do
     method |> String.downcase() |> String.to_existing_atom()
   end
 
+  defp handler_state(%{handler: {_, state}}), do: state
+  defp handler_state(_), do: nil
+
   defp handle_error(acc, handler, info) do
     observations = Observer.finalize(acc.observer)
-    handler_state = if acc.handler, do: elem(acc.handler, 1), else: nil
+    handler_state = handler_state(acc)
 
     notify_response_finished(
       handler,
