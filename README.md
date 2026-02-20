@@ -78,38 +78,38 @@ resp_obs = conn.private[:weir_response_observation]
 # - :duration_us - Processing time in microseconds
 ```
 
-## Observer Callbacks
+## Handler Callbacks
 
-Implement `Weir.Observer` to hook into the proxy lifecycle:
+Implement `Weir.Handler` to hook into the proxy lifecycle:
 
 ```elixir
-defmodule MyApp.ProxyObserver do
-  use Weir.Observer
+defmodule MyApp.ProxyHandler do
+  use Weir.Handler
 
   @impl true
-  def handle_request_started(metadata) do
+  def handle_request_started(metadata, state) do
     Logger.info("Proxying #{metadata.method} #{metadata.upstream_url}")
-    :ok
+    {:ok, state}
   end
 
   @impl true
-  def handle_response_started(metadata) do
-    Logger.info("TTFB: #{metadata.ttfb_ms}ms")
-    :ok
+  def handle_response_started(metadata, state) do
+    Logger.info("TTFB: #{metadata.time_to_first_byte_us}us")
+    {:ok, state}
   end
 
   @impl true
-  def handle_response_finished(result) do
+  def handle_response_finished(result, state) do
     Logger.info("Completed: #{result.status} in #{result.duration_us}us")
     # result contains :request_observation and :response_observation
-    :ok
+    {:ok, state}
   end
 end
 
 # Use it:
 Weir.proxy(conn,
   upstream: "https://api.example.com",
-  observer: MyApp.ProxyObserver
+  handler: {MyApp.ProxyHandler, %{}}
 )
 ```
 
