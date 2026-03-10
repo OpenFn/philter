@@ -1,12 +1,12 @@
-defmodule Weir.MixProject do
+defmodule Philter.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/stuartc/weir"
+  @source_url "https://github.com/OpenFn/philter"
 
   def project do
     [
-      app: :weir,
+      app: :philter,
       version: @version,
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -19,9 +19,10 @@ defmodule Weir.MixProject do
       package: package(),
 
       # Docs
-      name: "Weir",
+      name: "Philter",
       docs: docs(),
       source_url: @source_url,
+      homepage_url: "https://hexdocs.pm/philter",
 
       # Dialyzer
       dialyzer: dialyzer(),
@@ -63,7 +64,7 @@ defmodule Weir.MixProject do
 
   defp package do
     [
-      name: "weir",
+      name: "philter",
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
@@ -75,7 +76,7 @@ defmodule Weir.MixProject do
 
   defp docs do
     [
-      main: "Weir",
+      main: "readme",
       source_url: @source_url,
       source_ref: "v#{@version}",
       formatters: ["html"],
@@ -83,13 +84,14 @@ defmodule Weir.MixProject do
         "README.md",
         "CHANGELOG.md"
       ],
+      skip_undefined_reference_warnings_on: ["CHANGELOG.md"],
       groups_for_modules: [
-        Core: [Weir, Weir.ProxyPlug],
-        Configuration: [Weir.Config],
-        Observation: [Weir.Observation, Weir.Handler],
-        Internal: [Weir.BodyStream, Weir.ResponseStreamer, Weir.UTF8]
+        Core: [Philter, Philter.ProxyPlug],
+        Behaviour: [Philter.Handler],
+        Configuration: [Philter.Config],
+        Internal: [Philter.BodyStream, Philter.UTF8]
       ],
-      nest_modules_by_prefix: [Weir]
+      nest_modules_by_prefix: [Philter]
     ]
   end
 

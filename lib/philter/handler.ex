@@ -1,4 +1,4 @@
-defmodule Weir.Handler do
+defmodule Philter.Handler do
   @moduledoc """
   Behaviour for handling proxy lifecycle events.
 
@@ -11,7 +11,7 @@ defmodule Weir.Handler do
   ## Usage
 
       defmodule MyHandler do
-        use Weir.Handler
+        use Philter.Handler
 
         @impl true
         def handle_request_started(metadata, state) do
@@ -121,7 +121,7 @@ defmodule Weir.Handler do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour Weir.Handler
+      @behaviour Philter.Handler
 
       @impl true
       def handle_request_started(_metadata, state), do: {:ok, state}

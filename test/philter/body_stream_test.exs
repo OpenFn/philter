@@ -1,8 +1,8 @@
-defmodule Weir.BodyStreamTest do
+defmodule Philter.BodyStreamTest do
   use ExUnit.Case, async: true
   import Plug.Test
 
-  alias Weir.BodyStream
+  alias Philter.BodyStream
 
   describe "from_conn/2" do
     test "reads small body" do

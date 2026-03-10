@@ -1,4 +1,4 @@
-defmodule Weir.BodyStream do
+defmodule Philter.BodyStream do
   @moduledoc false
   # Internal module: Adapts Plug.Conn request body to Finch stream format.
   #

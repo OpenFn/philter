@@ -10,7 +10,7 @@
 /cover/
 
 # Package
-weir-*.tar
+philter-*.tar
 
 # VM crash dumps
 erl_crash.dump

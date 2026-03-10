@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Weir is a streaming HTTP proxy library for Elixir with O(1) memory body observation. It forwards HTTP requests to upstream servers while capturing body observations (SHA256 hash, size, timing, preview) without buffering the full body in memory.
+Philter is a streaming HTTP proxy library for Elixir with O(1) memory body observation. It forwards HTTP requests to upstream servers while capturing body observations (SHA256 hash, size, timing, preview) without buffering the full body in memory.
 
 Core deps: `finch ~> 0.18`, `plug ~> 1.14`. Optional: `phoenix ~> 1.7`, `jason ~> 1.0`. Test: `bypass ~> 2.1`.
 
@@ -12,8 +12,8 @@ Core deps: `finch ~> 0.18`, `plug ~> 1.14`. Optional: `phoenix ~> 1.7`, `jason ~
 
 ```bash
 mix test                          # Run all tests
-mix test test/weir/observer_test.exs  # Run a single test file
-mix test test/weir_test.exs:42    # Run a specific test by line number
+mix test test/philter/observer_test.exs  # Run a single test file
+mix test test/philter_test.exs:42    # Run a specific test by line number
 mix format                        # Auto-format code
 mix credo --strict                # Lint (strict mode, 120 char lines)
 mix dialyzer                      # Static type analysis (slow first run, PLTs cached in priv/plts/)
@@ -26,21 +26,21 @@ CI runs tests across Elixir 1.15–1.18 with OTP 25–27. Compile uses `--warnin
 
 ## Architecture
 
-**`Weir`** (`lib/weir.ex`) — Main entry point. `proxy/2` takes a `Plug.Conn` and options, streams the request to upstream via `Finch.stream_while/4`, and streams the response back. Returns the conn with observations in `conn.private[:weir_request_observation]` and `conn.private[:weir_response_observation]`. Handles errors as 502/504 responses.
+**`Philter`** (`lib/philter.ex`) — Main entry point. `proxy/2` takes a `Plug.Conn` and options, streams the request to upstream via `Finch.stream_while/4`, and streams the response back. Returns the conn with observations in `conn.private[:philter_request_observation]` and `conn.private[:philter_response_observation]`. Handles errors as 502/504 responses.
 
-**`Weir.ProxyPlug`** — Plug for router-level forwarding. Delegates to `Weir.proxy/2`.
+**`Philter.ProxyPlug`** — Plug for router-level forwarding. Delegates to `Philter.proxy/2`.
 
-**`Weir.Handler`** — Behaviour for lifecycle callbacks. State threads through: `handle_request_started/2` → `handle_response_started/2` → `handle_response_finished/2`. Can reject requests before the upstream call. `handle_response_finished/2` is always called, even on error.
+**`Philter.Handler`** — Behaviour for lifecycle callbacks. State threads through: `handle_request_started/2` → `handle_response_started/2` → `handle_response_finished/2`. Can reject requests before the upstream call. `handle_response_finished/2` is always called, even on error.
 
-**`Weir.Observer`** — Single linked process spawned per request (replaced a previous 3-Agent design). Receives `:req_chunk`/`:resp_chunk`/`:resp_started`/`:finalize` messages. Fire-and-forget for chunks, synchronous for finalize (5s timeout).
+**`Philter.Observer`** — Single linked process spawned per request (replaced a previous 3-Agent design). Receives `:req_chunk`/`:resp_chunk`/`:resp_started`/`:finalize` messages. Fire-and-forget for chunks, synchronous for finalize (5s timeout).
 
-**`Weir.Observation`** — Incremental body observation state machine. Streams SHA256 via `:crypto.hash_init/:hash_update/:hash_final`, captures first 64KB preview (UTF-8 safe), tracks size, conditionally accumulates full body based on content-type match + size limit.
+**`Philter.Observation`** — Incremental body observation state machine. Streams SHA256 via `:crypto.hash_init/:hash_update/:hash_final`, captures first 64KB preview (UTF-8 safe), tracks size, conditionally accumulates full body based on content-type match + size limit.
 
-**`Weir.Config`** — Resolves configuration by merging app env (`:weir`) with per-request overrides. Supports wildcard content-type patterns (e.g., `text/*`).
+**`Philter.Config`** — Resolves configuration by merging app env (`:philter`) with per-request overrides. Supports wildcard content-type patterns (e.g., `text/*`).
 
-**`Weir.BodyStream`** — Adapts `Plug.Conn` body reading into a `{:stream, enumerable}` for Finch. Reads 64KB chunks.
+**`Philter.BodyStream`** — Adapts `Plug.Conn` body reading into a `{:stream, enumerable}` for Finch. Reads 64KB chunks.
 
-**`Weir.UTF8`** — UTF-8 safe binary truncation for preview data.
+**`Philter.UTF8`** — UTF-8 safe binary truncation for preview data.
 
 ### Request Flow
 
@@ -62,7 +62,7 @@ CI runs tests across Elixir 1.15–1.18 with OTP 25–27. Compile uses `--warnin
 
 Tests use `ExUnit` with `async: true` and `Bypass` for mocking upstream HTTP servers. Test support code is in `test/support/` (compiled via `elixirc_paths` in test env):
 
-- `Weir.ConnCase` — CaseTemplate for Plug testing (no Phoenix dependency)
-- `Weir.TestHelpers` — `bypass_upstream/0`, `test_handler/0`, `json_response/3`
+- `Philter.ConnCase` — CaseTemplate for Plug testing (no Phoenix dependency)
+- `Philter.TestHelpers` — `bypass_upstream/0`, `test_handler/0`, `json_response/3`
 
-A test Finch pool (`Weir.TestFinch`) is started in `test/test_helper.exs`.
+A test Finch pool (`Philter.TestFinch`) is started in `test/test_helper.exs`.

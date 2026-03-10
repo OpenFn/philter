@@ -1,12 +1,12 @@
-defmodule Weir.Config do
+defmodule Philter.Config do
   @moduledoc """
-  Configuration management for Weir proxy library.
+  Configuration management for Philter proxy library.
 
   Configuration can be set at the application level and overridden per-request.
 
   ## Application Configuration
 
-      config :weir,
+      config :philter,
         finch_name: MyApp.Finch,
         receive_timeout: 15_000,
         max_payload_size: 1_048_576,
@@ -14,9 +14,9 @@ defmodule Weir.Config do
 
   ## Per-Request Overrides
 
-  Any option can be overridden when calling `Weir.proxy/2`:
+  Any option can be overridden when calling `Philter.proxy/2`:
 
-      Weir.proxy(conn,
+      Philter.proxy(conn,
         upstream: "http://api.example.com",
         receive_timeout: 30_000,
         max_payload_size: 5_242_880
@@ -24,7 +24,7 @@ defmodule Weir.Config do
 
   ## Options
 
-  - `:finch_name` - Name of the Finch pool to use (default: `Weir.Finch`)
+  - `:finch_name` - Name of the Finch pool to use (default: `Philter.Finch`)
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
@@ -42,7 +42,7 @@ defmodule Weir.Config do
   Wildcards like `text/*` are supported.
   """
 
-  @default_finch_name Weir.Finch
+  @default_finch_name Philter.Finch
   @default_receive_timeout 15_000
   @default_max_payload_size 1_048_576
   @default_persistable_content_types [
@@ -65,17 +65,17 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> Weir.Config.finch_name()
-      Weir.Finch
+      iex> Philter.Config.finch_name()
+      Philter.Finch
 
-      iex> Weir.Config.finch_name(finch_name: MyApp.Finch)
+      iex> Philter.Config.finch_name(finch_name: MyApp.Finch)
       MyApp.Finch
 
   """
   @spec finch_name(keyword()) :: atom()
   def finch_name(opts \\ []) do
     Keyword.get_lazy(opts, :finch_name, fn ->
-      Application.get_env(:weir, :finch_name, @default_finch_name)
+      Application.get_env(:philter, :finch_name, @default_finch_name)
     end)
   end
 
@@ -84,17 +84,17 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> Weir.Config.receive_timeout()
+      iex> Philter.Config.receive_timeout()
       15_000
 
-      iex> Weir.Config.receive_timeout(receive_timeout: 30_000)
+      iex> Philter.Config.receive_timeout(receive_timeout: 30_000)
       30_000
 
   """
   @spec receive_timeout(keyword()) :: pos_integer()
   def receive_timeout(opts \\ []) do
     Keyword.get_lazy(opts, :receive_timeout, fn ->
-      Application.get_env(:weir, :receive_timeout, @default_receive_timeout)
+      Application.get_env(:philter, :receive_timeout, @default_receive_timeout)
     end)
   end
 
@@ -103,17 +103,17 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> Weir.Config.max_payload_size()
+      iex> Philter.Config.max_payload_size()
       1_048_576
 
-      iex> Weir.Config.max_payload_size(max_payload_size: 5_242_880)
+      iex> Philter.Config.max_payload_size(max_payload_size: 5_242_880)
       5_242_880
 
   """
   @spec max_payload_size(keyword()) :: pos_integer()
   def max_payload_size(opts \\ []) do
     Keyword.get_lazy(opts, :max_payload_size, fn ->
-      Application.get_env(:weir, :max_payload_size, @default_max_payload_size)
+      Application.get_env(:philter, :max_payload_size, @default_max_payload_size)
     end)
   end
 
@@ -124,17 +124,21 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> Weir.Config.persistable_content_types() |> Enum.member?("application/json")
+      iex> Philter.Config.persistable_content_types() |> Enum.member?("application/json")
       true
 
-      iex> Weir.Config.persistable_content_types(persistable_content_types: ["application/json"])
+      iex> Philter.Config.persistable_content_types(persistable_content_types: ["application/json"])
       ["application/json"]
 
   """
   @spec persistable_content_types(keyword()) :: [String.t()]
   def persistable_content_types(opts \\ []) do
     Keyword.get_lazy(opts, :persistable_content_types, fn ->
-      Application.get_env(:weir, :persistable_content_types, @default_persistable_content_types)
+      Application.get_env(
+        :philter,
+        :persistable_content_types,
+        @default_persistable_content_types
+      )
     end)
   end
 
@@ -145,7 +149,7 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> config = Weir.Config.resolve(receive_timeout: 30_000)
+      iex> config = Philter.Config.resolve(receive_timeout: 30_000)
       iex> config.receive_timeout
       30_000
 
@@ -167,13 +171,13 @@ defmodule Weir.Config do
 
   ## Examples
 
-      iex> Weir.Config.content_type_persistable?("application/json", ["application/json", "text/*"])
+      iex> Philter.Config.content_type_persistable?("application/json", ["application/json", "text/*"])
       true
 
-      iex> Weir.Config.content_type_persistable?("text/plain", ["application/json", "text/*"])
+      iex> Philter.Config.content_type_persistable?("text/plain", ["application/json", "text/*"])
       true
 
-      iex> Weir.Config.content_type_persistable?("image/png", ["application/json", "text/*"])
+      iex> Philter.Config.content_type_persistable?("image/png", ["application/json", "text/*"])
       false
 
   """

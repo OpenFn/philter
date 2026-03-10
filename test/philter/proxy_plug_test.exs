@@ -1,13 +1,15 @@
-defmodule Weir.ProxyPlugTest do
+defmodule Philter.ProxyPlugTest do
   use ExUnit.Case, async: true
   import Plug.Test
   import Plug.Conn
 
-  alias Weir.ProxyPlug
+  alias Philter.ProxyPlug
 
   setup do
     bypass = Bypass.open()
-    {:ok, bypass: bypass, upstream: "http://localhost:#{bypass.port}", finch_name: Weir.TestFinch}
+
+    {:ok,
+     bypass: bypass, upstream: "http://localhost:#{bypass.port}", finch_name: Philter.TestFinch}
   end
 
   describe "GET passthrough" do
@@ -138,7 +140,7 @@ defmodule Weir.ProxyPlugTest do
         |> put_req_header("content-length", "#{byte_size(body)}")
         |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
 
-      obs = conn.private[:weir_request_observation]
+      obs = conn.private[:philter_request_observation]
       expected_hash = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
 
       assert obs.hash == expected_hash
@@ -163,7 +165,7 @@ defmodule Weir.ProxyPlugTest do
         conn(:get, "/observe")
         |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
 
-      obs = conn.private[:weir_response_observation]
+      obs = conn.private[:philter_response_observation]
       expected_hash = :crypto.hash(:sha256, response_body) |> Base.encode16(case: :lower)
 
       assert obs.hash == expected_hash

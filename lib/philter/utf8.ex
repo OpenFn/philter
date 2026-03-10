@@ -1,4 +1,4 @@
-defmodule Weir.UTF8 do
+defmodule Philter.UTF8 do
   @moduledoc """
   UTF-8 safe truncation for streaming data.
 
@@ -17,18 +17,18 @@ defmodule Weir.UTF8 do
 
   ## Examples
 
-      iex> Weir.UTF8.truncate("hello", 10)
+      iex> Philter.UTF8.truncate("hello", 10)
       "hello"
 
-      iex> Weir.UTF8.truncate("hello", 3)
+      iex> Philter.UTF8.truncate("hello", 3)
       "hel"
 
       # "e" is 2 bytes (C3 A9), truncating at 5 bytes preserves it
-      iex> Weir.UTF8.truncate("cafe", 5)
+      iex> Philter.UTF8.truncate("cafe", 5)
       "cafe"
 
       # Truncating at 4 bytes would split "e", so we get "caf"
-      iex> Weir.UTF8.truncate("cafe", 4)
+      iex> Philter.UTF8.truncate("cafe", 4)
       "caf"
 
   """
@@ -49,10 +49,10 @@ defmodule Weir.UTF8 do
 
   ## Examples
 
-      iex> Weir.UTF8.valid?("hello")
+      iex> Philter.UTF8.valid?("hello")
       true
 
-      iex> Weir.UTF8.valid?(<<0xFF, 0xFE>>)
+      iex> Philter.UTF8.valid?(<<0xFF, 0xFE>>)
       false
 
   """
@@ -72,11 +72,11 @@ defmodule Weir.UTF8 do
 
   ## Examples
 
-      iex> Weir.UTF8.ensure_valid("hello")
+      iex> Philter.UTF8.ensure_valid("hello")
       {:ok, "hello"}
 
       # Binary ending with incomplete UTF-8 sequence
-      iex> Weir.UTF8.ensure_valid("hello" <> <<0xC3>>)
+      iex> Philter.UTF8.ensure_valid("hello" <> <<0xC3>>)
       {:ok, "hello"}
 
   """

@@ -1,6 +1,6 @@
-defmodule Weir.TestHelpers do
+defmodule Philter.TestHelpers do
   @moduledoc """
-  Test helpers for Weir tests.
+  Test helpers for Philter tests.
 
   Provides convenience functions for setting up Bypass mocks,
   creating test responses, and other common test operations.
@@ -12,13 +12,13 @@ defmodule Weir.TestHelpers do
   ## Examples
 
       test "my test" do
-        %{bypass: bypass, upstream: upstream} = Weir.TestHelpers.bypass_upstream()
+        %{bypass: bypass, upstream: upstream} = Philter.TestHelpers.bypass_upstream()
 
         Bypass.expect(bypass, fn conn ->
           Plug.Conn.resp(conn, 200, "OK")
         end)
 
-        # Use upstream URL with Weir...
+        # Use upstream URL with Philter...
       end
   """
   @spec bypass_upstream() :: %{bypass: Bypass.t(), upstream: String.t()}
@@ -33,7 +33,7 @@ defmodule Weir.TestHelpers do
   ## Examples
 
       Bypass.expect(bypass, fn conn ->
-        Weir.TestHelpers.json_response(conn, 200, %{status: "ok"})
+        Philter.TestHelpers.json_response(conn, 200, %{status: "ok"})
       end)
   """
   @spec json_response(Plug.Conn.t(), integer(), term()) :: Plug.Conn.t()
@@ -49,7 +49,7 @@ defmodule Weir.TestHelpers do
   ## Examples
 
       Bypass.expect(bypass, fn conn ->
-        Weir.TestHelpers.text_response(conn, 200, "Hello, World!")
+        Philter.TestHelpers.text_response(conn, 200, "Hello, World!")
       end)
   """
   @spec text_response(Plug.Conn.t(), integer(), String.t()) :: Plug.Conn.t()
@@ -66,9 +66,9 @@ defmodule Weir.TestHelpers do
 
   ## Examples
 
-      {handler, get_events} = Weir.TestHelpers.test_handler()
+      {handler, get_events} = Philter.TestHelpers.test_handler()
 
-      # Use handler with Weir...
+      # Use handler with Philter...
 
       events = get_events.()
       assert length(events) == 2
@@ -79,13 +79,13 @@ defmodule Weir.TestHelpers do
 
     # Generate unique module name
     module_name =
-      Module.concat([Weir.TestHandler, "Handler#{System.unique_integer([:positive])}"])
+      Module.concat([Philter.TestHandler, "Handler#{System.unique_integer([:positive])}"])
 
     defmodule_result =
       Module.create(
         module_name,
         quote do
-          use Weir.Handler
+          use Philter.Handler
 
           @impl true
           def handle_request_started(metadata, state) do

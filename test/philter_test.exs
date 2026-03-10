@@ -1,10 +1,10 @@
-defmodule WeirTest do
+defmodule PhilterTest do
   use ExUnit.Case, async: true
   import Plug.Test
   import Plug.Conn
 
   defmodule TestHandler do
-    use Weir.Handler
+    use Philter.Handler
 
     @impl true
     def handle_request_started(metadata, state) do
@@ -26,7 +26,7 @@ defmodule WeirTest do
   end
 
   defmodule RejectingHandler do
-    use Weir.Handler
+    use Philter.Handler
 
     @impl true
     def handle_request_started(_metadata, state) do
@@ -38,7 +38,7 @@ defmodule WeirTest do
   end
 
   defmodule TrackingRejectHandler do
-    use Weir.Handler
+    use Philter.Handler
 
     @impl true
     def handle_request_started(_metadata, state) do
@@ -68,13 +68,13 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/test")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
 
       assert conn.status == 200
       assert conn.resp_body =~ "status"
 
-      req_obs = conn.private[:weir_request_observation]
-      resp_obs = conn.private[:weir_response_observation]
+      req_obs = conn.private[:philter_request_observation]
+      resp_obs = conn.private[:philter_response_observation]
 
       assert req_obs.size == 0
       assert resp_obs.size > 0
@@ -97,16 +97,16 @@ defmodule WeirTest do
         conn(:post, "/api", request_body)
         |> put_req_header("content-type", "application/json")
         |> put_req_header("content-length", "#{byte_size(request_body)}")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           persistable_content_types: ["application/json"]
         )
 
       assert conn.status == 201
 
-      req_obs = conn.private[:weir_request_observation]
-      resp_obs = conn.private[:weir_response_observation]
+      req_obs = conn.private[:philter_request_observation]
+      resp_obs = conn.private[:philter_response_observation]
 
       # Request body should be accumulated (JSON under threshold)
       assert req_obs.body == request_body
@@ -131,16 +131,16 @@ defmodule WeirTest do
         conn(:post, "/upload", binary_body)
         |> put_req_header("content-type", "application/octet-stream")
         |> put_req_header("content-length", "#{byte_size(binary_body)}")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           persistable_content_types: ["application/json", "text/*"]
         )
 
       assert conn.status == 200
 
-      req_obs = conn.private[:weir_request_observation]
-      resp_obs = conn.private[:weir_response_observation]
+      req_obs = conn.private[:philter_request_observation]
+      resp_obs = conn.private[:philter_response_observation]
 
       # Binary content should not be accumulated
       assert req_obs.body == nil
@@ -167,16 +167,16 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/large")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           max_payload_size: 1000,
           persistable_content_types: ["application/json"]
         )
 
       assert conn.status == 200
 
-      resp_obs = conn.private[:weir_response_observation]
+      resp_obs = conn.private[:philter_response_observation]
 
       # Body should be nil because it exceeded threshold
       assert resp_obs.body == nil
@@ -196,9 +196,9 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/observed")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -232,9 +232,9 @@ defmodule WeirTest do
         conn(:post, "/api", "")
         # These conn headers should be ignored when :headers is provided
         |> put_req_header("x-should-not-appear", "ignored")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           headers: [
             {"authorization", "Bearer test"},
             {"content-type", "application/json"}
@@ -260,7 +260,7 @@ defmodule WeirTest do
         conn(:get, "/headers")
         |> put_req_header("x-custom", "value")
         |> put_req_header("connection", "keep-alive")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
 
       assert conn.status == 200
     end
@@ -277,9 +277,9 @@ defmodule WeirTest do
 
       _conn =
         conn(:get, "/meta")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}},
           headers: custom_headers
         )
@@ -292,9 +292,9 @@ defmodule WeirTest do
       # Connect to non-existent server
       conn =
         conn(:get, "/test")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: "http://localhost:59999",
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -310,9 +310,9 @@ defmodule WeirTest do
     test "rejects proxy with handler-controlled status and body", %{upstream: upstream} do
       conn =
         conn(:get, "/test")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {RejectingHandler, %{}}
         )
 
@@ -325,9 +325,9 @@ defmodule WeirTest do
     } do
       conn =
         conn(:get, "/test")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {TrackingRejectHandler, %{test_pid: self()}}
         )
 
@@ -351,9 +351,9 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/ttfb")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -374,7 +374,7 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/channels/some-id/api/v2")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch, path: "/api/v2")
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch, path: "/api/v2")
 
       assert conn.status == 200
       assert conn.resp_body =~ "ok"
@@ -387,9 +387,9 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/original")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: upstream,
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           path: fn conn -> "/prefix" <> conn.request_path end
         )
 
@@ -404,7 +404,7 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/original?foo=bar")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch, path: "/override")
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch, path: "/override")
 
       assert conn.status == 200
     end
@@ -419,7 +419,7 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/default-path")
-        |> Weir.proxy(upstream: upstream, finch_name: Weir.TestFinch)
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
 
       assert conn.status == 200
     end
@@ -438,9 +438,9 @@ defmodule WeirTest do
 
       conn =
         conn(:get, "/timeout")
-        |> Weir.proxy(
+        |> Philter.proxy(
           upstream: "http://localhost:#{port}",
-          finch_name: Weir.TestFinch,
+          finch_name: Philter.TestFinch,
           receive_timeout: 100
         )
 

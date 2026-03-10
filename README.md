@@ -1,12 +1,12 @@
-# Weir
+# Philter
 
-[![Hex.pm](https://img.shields.io/hexpm/v/weir.svg)](https://hex.pm/packages/weir)
-[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/weir)
-[![CI](https://github.com/OpenFn/weir/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenFn/weir/actions/workflows/ci.yml)
+[![Hex.pm](https://img.shields.io/hexpm/v/philter.svg)](https://hex.pm/packages/philter)
+[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/philter)
+[![CI](https://github.com/OpenFn/philter/actions/workflows/ci.yml/badge.svg)](https://github.com/OpenFn/philter/actions/workflows/ci.yml)
 
 Streaming HTTP proxy library with O(1) memory body observation for Elixir.
 
-> **Weir** /wɪər/ - A low dam that measures water flow without blocking it.
+> **Philter** — an alchemical potion or charm; from Greek *philtron* (φίλτρον), "love potion."
 
 ## Features
 
@@ -18,12 +18,12 @@ Streaming HTTP proxy library with O(1) memory body observation for Elixir.
 
 ## Installation
 
-Add `weir` to your list of dependencies in `mix.exs`:
+Add `philter` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:weir, "~> 0.1.0"}
+    {:philter, "~> 0.1.0"}
   ]
 end
 ```
@@ -38,37 +38,37 @@ children = [
 ]
 ```
 
-2. Configure Weir:
+2. Configure Philter:
 
 ```elixir
 # config/config.exs
-config :weir, finch_name: MyApp.Finch
+config :philter, finch_name: MyApp.Finch
 ```
 
 3. Use in your controller:
 
 ```elixir
 def proxy(conn, _params) do
-  Weir.proxy(conn, upstream: "https://api.example.com")
+  Philter.proxy(conn, upstream: "https://api.example.com")
 end
 ```
 
 Or as a Plug in your router:
 
 ```elixir
-forward "/api", Weir.ProxyPlug, upstream: "https://api.example.com"
+forward "/api", Philter.ProxyPlug, upstream: "https://api.example.com"
 ```
 
 ## Body Observation
 
-Weir captures observations about request and response bodies without buffering:
+Philter captures observations about request and response bodies without buffering:
 
 ```elixir
-conn = Weir.proxy(conn, upstream: "https://api.example.com")
+conn = Philter.proxy(conn, upstream: "https://api.example.com")
 
 # Access observations from conn.private
-req_obs = conn.private[:weir_request_observation]
-resp_obs = conn.private[:weir_response_observation]
+req_obs = conn.private[:philter_request_observation]
+resp_obs = conn.private[:philter_response_observation]
 
 # Each observation contains:
 # - :hash - SHA256 hash of the body
@@ -80,11 +80,11 @@ resp_obs = conn.private[:weir_response_observation]
 
 ## Handler Callbacks
 
-Implement `Weir.Handler` to hook into the proxy lifecycle:
+Implement `Philter.Handler` to hook into the proxy lifecycle:
 
 ```elixir
 defmodule MyApp.ProxyHandler do
-  use Weir.Handler
+  use Philter.Handler
 
   @impl true
   def handle_request_started(metadata, state) do
@@ -107,7 +107,7 @@ defmodule MyApp.ProxyHandler do
 end
 
 # Use it:
-Weir.proxy(conn,
+Philter.proxy(conn,
   upstream: "https://api.example.com",
   handler: {MyApp.ProxyHandler, %{}}
 )
@@ -117,7 +117,7 @@ Weir.proxy(conn,
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `:finch_name` | `Weir.Finch` | Name of the Finch pool to use |
+| `:finch_name` | `Philter.Finch` | Name of the Finch pool to use |
 | `:receive_timeout` | `15_000` | Response timeout in milliseconds |
 | `:max_payload_size` | `1_048_576` | Max body size for full accumulation (1MB) |
 | `:persistable_content_types` | JSON/XML/text | Content types eligible for body storage |
@@ -125,7 +125,7 @@ Weir.proxy(conn,
 Override per-request:
 
 ```elixir
-Weir.proxy(conn,
+Philter.proxy(conn,
   upstream: "https://api.example.com",
   receive_timeout: 60_000,
   max_payload_size: 5_242_880
@@ -136,7 +136,7 @@ Or set application defaults:
 
 ```elixir
 # config/config.exs
-config :weir,
+config :philter,
   finch_name: MyApp.Finch,
   receive_timeout: 30_000,
   max_payload_size: 5_242_880,
@@ -145,7 +145,7 @@ config :weir,
 
 ## Documentation
 
-Full documentation: [https://hexdocs.pm/weir](https://hexdocs.pm/weir)
+Full documentation: [https://hexdocs.pm/philter](https://hexdocs.pm/philter)
 
 ## License
 

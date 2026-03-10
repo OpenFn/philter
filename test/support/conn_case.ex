@@ -1,4 +1,4 @@
-defmodule Weir.ConnCase do
+defmodule Philter.ConnCase do
   @moduledoc """
   Test case template for Plug-based testing.
 
@@ -8,7 +8,7 @@ defmodule Weir.ConnCase do
   ## Usage
 
       defmodule MyTest do
-        use Weir.ConnCase
+        use Philter.ConnCase
 
         test "my test" do
           conn = conn(:get, "/path")
@@ -21,7 +21,7 @@ defmodule Weir.ConnCase do
   using do
     quote do
       use Plug.Test
-      import Weir.ConnCase
+      import Philter.ConnCase
     end
   end
 

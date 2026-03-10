@@ -1,4 +1,4 @@
-defmodule Weir.Observation do
+defmodule Philter.Observation do
   @moduledoc false
   # Internal module: Incremental observation capture for streaming bodies.
   #
@@ -132,7 +132,7 @@ defmodule Weir.Observation do
   - `:duration_us` - total microseconds
   - `:time_to_first_byte_us` - microseconds to first chunk (nil if no data)
   """
-  @spec finalize(t()) :: Weir.Handler.body_observation()
+  @spec finalize(t()) :: Philter.Handler.body_observation()
   def finalize(%__MODULE__{} = obs) do
     hash = obs.hash_state |> :crypto.hash_final() |> Base.encode16(case: :lower)
     body = finalize_body(obs)
@@ -154,7 +154,7 @@ defmodule Weir.Observation do
 
   defp finalize_preview(preview) do
     # Ensure preview is valid UTF-8 by trimming any incomplete sequences
-    case Weir.UTF8.ensure_valid(preview) do
+    case Philter.UTF8.ensure_valid(preview) do
       {:ok, valid} -> valid
       # Keep as-is if it's binary data
       {:error, _} -> preview

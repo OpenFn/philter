@@ -1,12 +1,12 @@
-defmodule Weir.ConfigTest do
+defmodule Philter.ConfigTest do
   use ExUnit.Case, async: true
 
-  alias Weir.Config
+  alias Philter.Config
 
   describe "defaults" do
     test "finch_name can be configured via application env" do
-      # test_helper.exs sets this to Weir.TestFinch
-      assert Config.finch_name() == Weir.TestFinch
+      # test_helper.exs sets this to Philter.TestFinch
+      assert Config.finch_name() == Philter.TestFinch
     end
 
     test "receive_timeout has default" do

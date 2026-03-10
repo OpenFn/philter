@@ -1,7 +1,7 @@
-defmodule Weir.UTF8Test do
+defmodule Philter.UTF8Test do
   use ExUnit.Case, async: true
 
-  alias Weir.UTF8
+  alias Philter.UTF8
 
   describe "truncate/2" do
     test "returns unchanged if under limit" do

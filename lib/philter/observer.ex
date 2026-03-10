@@ -1,10 +1,10 @@
-defmodule Weir.Observer do
+defmodule Philter.Observer do
   @moduledoc false
   # Linked process that accumulates request and response body observations
   # for a single proxy request. Replaces the previous 3-Agent approach with
   # a single ephemeral process that uses a recursive receive loop.
 
-  alias Weir.{Config, Observation}
+  alias Philter.{Config, Observation}
 
   @finalize_timeout 5_000
 
@@ -13,7 +13,7 @@ defmodule Weir.Observer do
 
   ## Options
 
-    * `:config` — resolved `Weir.Config` map with `:persistable_content_types`
+    * `:config` — resolved `Philter.Config` map with `:persistable_content_types`
       and `:max_payload_size`
     * `:req_accumulate?` — whether to accumulate the full request body
       (default: `false`)
@@ -72,8 +72,8 @@ defmodule Weir.Observer do
   The observer process exits normally after responding.
   """
   @spec finalize(pid()) :: %{
-          request: Weir.Handler.body_observation(),
-          response: Weir.Handler.body_observation()
+          request: Philter.Handler.body_observation(),
+          response: Philter.Handler.body_observation()
         }
   def finalize(pid) do
     ref = make_ref()

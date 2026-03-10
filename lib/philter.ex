@@ -1,18 +1,18 @@
-defmodule Weir do
+defmodule Philter do
   @moduledoc """
   Streaming HTTP proxy with request/response observation.
 
-  Weir forwards HTTP requests to upstream servers while capturing body observations
+  Philter forwards HTTP requests to upstream servers while capturing body observations
   (hash, size, timing, preview) without buffering. Supports conditional body
   accumulation for content types you want to persist.
 
-  > **Weir** /wɪər/ - A low dam built across a river to raise the level of water
-  > upstream or regulate its flow, often used for measuring flow rate. Perfect
-  > metaphor for a streaming proxy that observes traffic without blocking it.
+  > **Philter** — an alchemical potion or charm; from Greek *philtron* (φίλτρον), "love potion."
+  > Here it evokes both *filtering* (the proxy inspects and forwards HTTP traffic)
+  > and the Elixir ecosystem's alchemical tradition.
 
   ## Finch Setup (Required)
 
-  Weir requires a running Finch HTTP client instance. Add to your application's
+  Philter requires a running Finch HTTP client instance. Add to your application's
   supervision tree:
 
       # lib/my_app/application.ex
@@ -20,38 +20,38 @@ defmodule Weir do
         {Finch, name: MyApp.Finch}
       ]
 
-  Then configure Weir to use it:
+  Then configure Philter to use it:
 
       # config/config.exs
-      config :weir, finch_name: MyApp.Finch
+      config :philter, finch_name: MyApp.Finch
 
   Or pass it per-request:
 
-      Weir.proxy(conn, upstream: "https://api.example.com", finch_name: MyApp.Finch)
+      Philter.proxy(conn, upstream: "https://api.example.com", finch_name: MyApp.Finch)
 
   ## Quick Start
 
       # In a Phoenix controller
       def proxy(conn, _params) do
-        Weir.proxy(conn, upstream: "http://api.example.com")
+        Philter.proxy(conn, upstream: "http://api.example.com")
       end
 
       # Or as a Plug in your router
-      forward "/api", Weir.ProxyPlug, upstream: "http://api.example.com"
+      forward "/api", Philter.ProxyPlug, upstream: "http://api.example.com"
 
   ## Configuration
 
-  Set defaults in your config and override per-request. See `Weir.Config` for details.
+  Set defaults in your config and override per-request. See `Philter.Config` for details.
 
       # config/config.exs
-      config :weir,
+      config :philter,
         finch_name: MyApp.Finch,
         receive_timeout: 30_000,
         max_payload_size: 5_242_880
 
   ## Handler Callbacks
 
-  Implement `Weir.Handler` to hook into the proxy lifecycle:
+  Implement `Philter.Handler` to hook into the proxy lifecycle:
 
     * `handle_request_started/2` - Called before sending to upstream
     * `handle_response_started/2` - Called on first byte received (TTFB)
@@ -60,7 +60,7 @@ defmodule Weir do
   Example:
 
       defmodule MyHandler do
-        use Weir.Handler
+        use Philter.Handler
 
         @impl true
         def handle_response_finished(result, state) do
@@ -75,7 +75,7 @@ defmodule Weir do
   import Plug.Conn
   require Logger
 
-  alias Weir.{Config, Observer}
+  alias Philter.{Config, Observer}
 
   @timeout_reasons [:timeout, :connect_timeout, {:closed, :timeout}]
 
@@ -105,21 +105,21 @@ defmodule Weir do
   Proxies an HTTP request to an upstream server.
 
   Streams the request to upstream and the response back to the client. Call this
-  after authentication or other pre-processing (unlike `Weir.ProxyPlug`).
+  after authentication or other pre-processing (unlike `Philter.ProxyPlug`).
 
   ## Examples
 
       # Basic proxy
-      Weir.proxy(conn, upstream: "http://api.example.com")
+      Philter.proxy(conn, upstream: "http://api.example.com")
 
       # With handler for logging/persistence
-      Weir.proxy(conn,
+      Philter.proxy(conn,
         upstream: "http://api.example.com",
         handler: {MyHandler, %{user_id: user.id}}
       )
 
       # Override timeout for slow endpoints
-      Weir.proxy(conn,
+      Philter.proxy(conn,
         upstream: "http://api.example.com",
         receive_timeout: 60_000
       )
@@ -129,14 +129,14 @@ defmodule Weir do
     * `:upstream` - Base URL of the upstream server. **Required.**
 
     * `:handler` - Handler module or `{module, state}` tuple for lifecycle
-      callbacks. See `Weir.Handler` for the callback interface.
+      callbacks. See `Philter.Handler` for the callback interface.
 
     * `:headers` - Pre-assembled outbound request headers as `[{name, value}]`
       tuples. When provided, these headers are sent as-is to the upstream
       (no filtering of `conn.req_headers`, no hop-by-hop removal). When omitted,
       `conn.req_headers` are filtered (hop-by-hop removed, keys lowercased).
 
-    * `:finch_name` - Finch pool name. Default: configured value (see `Weir.Config`).
+    * `:finch_name` - Finch pool name. Default: configured value (see `Philter.Config`).
 
     * `:receive_timeout` - Response timeout in milliseconds. Default: `15_000`.
 
@@ -153,8 +153,8 @@ defmodule Weir do
 
   Returns the `conn` with response sent. Observations are stored in:
 
-    * `conn.private[:weir_request_observation]` - Request body observation
-    * `conn.private[:weir_response_observation]` - Response body observation
+    * `conn.private[:philter_request_observation]` - Request body observation
+    * `conn.private[:philter_response_observation]` - Response body observation
 
   Each observation contains `:hash`, `:size`, `:body` (if accumulated), `:preview`,
   and `:duration_us`.
@@ -253,11 +253,11 @@ defmodule Weir do
             # Store observations in conn private
             acc.conn
             |> put_private(
-              :weir_request_observation,
+              :philter_request_observation,
               observations.request
             )
             |> put_private(
-              :weir_response_observation,
+              :philter_response_observation,
               observations.response
             )
 
@@ -407,7 +407,7 @@ defmodule Weir do
       [] ->
         case get_req_header(conn, "transfer-encoding") do
           ["chunked"] ->
-            Weir.BodyStream.from_conn(conn,
+            Philter.BodyStream.from_conn(conn,
               on_chunk: fn chunk ->
                 Observer.request_chunk(observer, chunk)
               end
@@ -418,7 +418,7 @@ defmodule Weir do
         end
 
       _ ->
-        Weir.BodyStream.from_conn(conn,
+        Philter.BodyStream.from_conn(conn,
           on_chunk: fn chunk ->
             Observer.request_chunk(observer, chunk)
           end

@@ -11,12 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial release (extracted from Spike)
-- `Weir.proxy/2` for controller-based proxying
-- `Weir.ProxyPlug` for router-level forwarding
-- `Weir.Observer` behaviour for lifecycle callbacks
-  - `handle_request_started/1` - Called before sending to upstream
-  - `handle_response_started/1` - Called on first byte received (TTFB)
-  - `handle_response_finished/1` - Called with complete observations
+- `Philter.proxy/2` for controller-based proxying
+- `Philter.ProxyPlug` for router-level forwarding
+- `Philter.Handler` behaviour for lifecycle callbacks
+  - `handle_request_started/2` - Called before sending to upstream
+  - `handle_response_started/2` - Called on first byte received (TTFB)
+  - `handle_response_finished/2` - Called with complete observations
 - Body observation with O(1) memory:
   - SHA256 hash computed incrementally
   - Byte size tracking

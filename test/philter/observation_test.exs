@@ -1,7 +1,7 @@
-defmodule Weir.ObservationTest do
+defmodule Philter.ObservationTest do
   use ExUnit.Case, async: true
 
-  alias Weir.Observation
+  alias Philter.Observation
 
   describe "new/0" do
     test "initializes with empty state" do

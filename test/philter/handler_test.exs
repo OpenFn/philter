@@ -1,9 +1,9 @@
-defmodule Weir.HandlerTest do
+defmodule Philter.HandlerTest do
   use ExUnit.Case, async: true
 
   describe "behaviour" do
     defmodule TestHandler do
-      @behaviour Weir.Handler
+      @behaviour Philter.Handler
 
       @impl true
       def handle_request_started(metadata, state) do
@@ -31,9 +31,9 @@ defmodule Weir.HandlerTest do
     end
   end
 
-  describe "use Weir.Handler" do
+  describe "use Philter.Handler" do
     defmodule DefaultHandler do
-      use Weir.Handler
+      use Philter.Handler
 
       @impl true
       def handle_response_finished(result, state) do

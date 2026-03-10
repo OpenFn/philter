@@ -1,7 +1,7 @@
-defmodule Weir.ObserverTest do
+defmodule Philter.ObserverTest do
   use ExUnit.Case, async: true
 
-  alias Weir.Observer
+  alias Philter.Observer
 
   defp default_config do
     %{
