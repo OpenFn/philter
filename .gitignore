@@ -11,6 +11,7 @@
 
 # Package
 philter-*.tar
+/philter-*/
 
 # VM crash dumps
 erl_crash.dump
