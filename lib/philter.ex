@@ -133,9 +133,11 @@ defmodule Philter do
 
     * `:headers` - Pre-assembled outbound request headers as `[{name, value}]`
       tuples. When provided, these replace `conn.req_headers` (no hop-by-hop
-      filtering). When omitted, `conn.req_headers` are filtered (hop-by-hop
-      removed, keys lowercased). In both cases, the `host` header is rewritten
-      to match the upstream server.
+      filtering) and an explicit `"host"` entry (case-insensitive) is preserved
+      as-is; if no `"host"` is included, the upstream host is appended as a
+      default.
+      When omitted, `conn.req_headers` are filtered (hop-by-hop removed, keys
+      lowercased) and the `host` header is always rewritten to match upstream.
 
     * `:finch_name` - Finch pool name. Default: configured value (see `Philter.Config`).
 
@@ -380,11 +382,15 @@ defmodule Philter do
   end
 
   defp build_outbound_headers(headers, _conn, upstream) do
-    put_host_header(headers, extract_host(upstream))
+    maybe_put_host_header(headers, extract_host(upstream))
   end
 
   defp put_host_header(headers, host) do
     Enum.reject(headers, &host_header?/1) ++ [{"host", host}]
+  end
+
+  defp maybe_put_host_header(headers, host) do
+    if Enum.any?(headers, &host_header?/1), do: headers, else: headers ++ [{"host", host}]
   end
 
   defp host_header?({k, _}), do: String.downcase(k) == "host"
