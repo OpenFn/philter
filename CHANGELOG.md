@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-11
+
+### Added
+- `:extra_headers` option for `proxy/2` and `ProxyPlug` — merge additional headers into the filtered outbound request, replacing existing headers with matching names ([`044e8fc`](https://github.com/OpenFn/philter/commit/044e8fc))
+- `:strip_headers` option for `proxy/2` and `ProxyPlug` — remove named headers (case-insensitive) before forwarding ([`044e8fc`](https://github.com/OpenFn/philter/commit/044e8fc))
+- Mutual exclusion validation: `:headers` cannot be combined with `:extra_headers` or `:strip_headers` (raises `ArgumentError`) ([`044e8fc`](https://github.com/OpenFn/philter/commit/044e8fc))
+- Configurable logging via `:log_level` option — lifecycle events logged at the configured level, or suppressed with `false` ([`daa8657`](https://github.com/OpenFn/philter/commit/daa8657))
+
+### Fixed
+- Preserve explicit `host` header in caller-supplied `:headers` instead of always rewriting it ([`d2ac7b1`](https://github.com/OpenFn/philter/commit/d2ac7b1))
+- Rewrite `host` header to match upstream URL in the default (filtered) path ([`475da4c`](https://github.com/OpenFn/philter/commit/475da4c))
+
 ## [0.1.0] - 2025-02-04
 
 ### Added
