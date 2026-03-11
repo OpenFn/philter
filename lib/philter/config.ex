@@ -28,6 +28,7 @@ defmodule Philter.Config do
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
+  - `:log_level` - Logger level for lifecycle events, or `false` to disable (default: `:debug`)
 
   ## Default Persistable Content Types
 
@@ -45,6 +46,7 @@ defmodule Philter.Config do
   @default_finch_name Philter.Finch
   @default_receive_timeout 15_000
   @default_max_payload_size 1_048_576
+  @default_log_level :debug
   @default_persistable_content_types [
     "application/json",
     "application/xml",
@@ -57,7 +59,8 @@ defmodule Philter.Config do
           finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
-          persistable_content_types: [String.t()]
+          persistable_content_types: [String.t()],
+          log_level: Logger.level() | false
         }
 
   @doc """
@@ -143,6 +146,30 @@ defmodule Philter.Config do
   end
 
   @doc """
+  Returns the log level for lifecycle events.
+
+  Set to `false` to disable all logging. Defaults to `:debug`.
+
+  ## Examples
+
+      iex> Philter.Config.log_level()
+      :debug
+
+      iex> Philter.Config.log_level(log_level: :info)
+      :info
+
+      iex> Philter.Config.log_level(log_level: false)
+      false
+
+  """
+  @spec log_level(keyword()) :: Logger.level() | false
+  def log_level(opts \\ []) do
+    Keyword.get_lazy(opts, :log_level, fn ->
+      Application.get_env(:philter, :log_level, @default_log_level)
+    end)
+  end
+
+  @doc """
   Returns all configuration as a map, with per-request overrides applied.
 
   Useful for getting the full resolved config in one call.
@@ -160,7 +187,8 @@ defmodule Philter.Config do
       finch_name: finch_name(opts),
       receive_timeout: receive_timeout(opts),
       max_payload_size: max_payload_size(opts),
-      persistable_content_types: persistable_content_types(opts)
+      persistable_content_types: persistable_content_types(opts),
+      log_level: log_level(opts)
     }
   end
 

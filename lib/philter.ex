@@ -98,7 +98,8 @@ defmodule Philter do
           finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
-          persistable_content_types: [String.t()]
+          persistable_content_types: [String.t()],
+          log_level: Logger.level() | false
         ]
 
   @doc """
@@ -152,6 +153,9 @@ defmodule Philter do
     * `:persistable_content_types` - Content types eligible for body accumulation.
       Supports wildcards like `"text/*"`. Default: JSON, XML, and text types.
 
+    * `:log_level` - Logger level for lifecycle events (`:debug`, `:info`, etc.)
+      or `false` to disable all logging. Default: `:debug`.
+
   ## Return Value
 
   Returns the `conn` with response sent. Observations are stored in:
@@ -178,6 +182,19 @@ defmodule Philter do
     upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
     outbound_headers = build_outbound_headers(Keyword.get(opts, :headers), conn, upstream)
+    log_level = config.log_level
+
+    # Log #1: Request start
+    log(log_level, fn ->
+      [
+        "Philter ",
+        conn.method,
+        " ",
+        upstream_url,
+        " host=",
+        extract_host(upstream)
+      ]
+    end)
 
     # Notify handler of request start
     case notify_request_started(handler, %{
@@ -220,7 +237,9 @@ defmodule Philter do
           observer: observer,
           status: nil,
           started_at: started_at,
-          error: nil
+          error: nil,
+          log_level: log_level,
+          upstream_url: upstream_url
         }
 
         result =
@@ -235,6 +254,20 @@ defmodule Philter do
         case result do
           {:ok, acc} ->
             observations = Observer.finalize(observer)
+            duration_us = System.monotonic_time(:microsecond) - started_at
+
+            # Log #3: Success complete
+            log(log_level, fn ->
+              [
+                "Philter complete ",
+                Integer.to_string(acc.status),
+                " ",
+                Integer.to_string(observations.response.size),
+                "B ",
+                Integer.to_string(div(duration_us, 1000)),
+                "ms"
+              ]
+            end)
 
             handler_state = handler_state(acc)
 
@@ -248,7 +281,7 @@ defmodule Philter do
                 upstream_url: upstream_url,
                 method: acc.conn.method,
                 status: acc.conn.status,
-                duration_us: System.monotonic_time(:microsecond) - started_at
+                duration_us: duration_us
               },
               handler_state
             )
@@ -298,6 +331,18 @@ defmodule Philter do
         end
 
       {:reject, status, body, _handler_state} ->
+        # Log #5: Handler rejection
+        log(log_level, fn ->
+          [
+            "Philter rejected ",
+            conn.method,
+            " ",
+            upstream_url,
+            " status=",
+            Integer.to_string(status)
+          ]
+        end)
+
         conn |> send_resp(status, body) |> halt()
     end
   end
@@ -305,6 +350,8 @@ defmodule Philter do
   # Stream message handlers (replaces ResponseStreamer)
 
   defp handle_stream_message({:status, status}, acc) do
+    # Log #2: Status from upstream
+    log(acc.log_level, fn -> ["Philter ", Integer.to_string(status), " from upstream"] end)
     {:cont, %{acc | status: status}}
   end
 
@@ -484,6 +531,20 @@ defmodule Philter do
   defp handler_state(_), do: nil
 
   defp handle_error(acc, handler, info) do
+    # Log #4: Error
+    if acc.log_level do
+      Logger.error(fn ->
+        [
+          "Philter error ",
+          Integer.to_string(info.status),
+          " ",
+          inspect(info.error),
+          " upstream=",
+          info.upstream_url
+        ]
+      end)
+    end
+
     observations = Observer.finalize(acc.observer)
     handler_state = handler_state(acc)
 
@@ -519,4 +580,7 @@ defmodule Philter do
   defp notify_response_finished({module, _args}, result, state) do
     module.handle_response_finished(result, state)
   end
+
+  defp log(false, _fun), do: :ok
+  defp log(level, fun), do: Logger.log(level, fun)
 end

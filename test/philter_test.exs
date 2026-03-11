@@ -1,5 +1,6 @@
 defmodule PhilterTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog
   import Plug.Test
   import Plug.Conn
 
@@ -541,6 +542,108 @@ defmodule PhilterTest do
 
       assert conn.status == 504
       assert conn.halted
+    end
+  end
+
+  describe "logging" do
+    test "default :debug level emits request start with method, URL, and host", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/log-test", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      log =
+        capture_log([level: :debug], fn ->
+          conn(:get, "/log-test")
+          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        end)
+
+      assert log =~ "Philter GET"
+      assert log =~ "/log-test"
+      assert log =~ "host=localhost:#{bypass.port}"
+    end
+
+    test "log_level: false produces no log output", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/silent", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      log =
+        capture_log([level: :debug], fn ->
+          conn(:get, "/silent")
+          |> Philter.proxy(
+            upstream: upstream,
+            finch_name: Philter.TestFinch,
+            log_level: false
+          )
+        end)
+
+      assert log == ""
+    end
+
+    test "error paths log at :error level", %{upstream: _upstream} do
+      log =
+        capture_log([level: :error], fn ->
+          conn(:get, "/fail")
+          |> Philter.proxy(
+            upstream: "http://localhost:59999",
+            finch_name: Philter.TestFinch
+          )
+        end)
+
+      assert log =~ "Philter error 502"
+      assert log =~ "upstream=http://localhost:59999/fail"
+    end
+
+    test "response complete log includes status, size, and duration", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/complete", fn conn ->
+        send_resp(conn, 200, "hello")
+      end)
+
+      log =
+        capture_log([level: :debug], fn ->
+          conn(:get, "/complete")
+          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        end)
+
+      assert log =~ "Philter complete 200"
+      assert log =~ "5B"
+      assert log =~ ~r/\d+ms/
+    end
+
+    test "rejection is logged with method, URL, and status", %{upstream: upstream} do
+      log =
+        capture_log([level: :debug], fn ->
+          conn(:get, "/rejected")
+          |> Philter.proxy(
+            upstream: upstream,
+            finch_name: Philter.TestFinch,
+            handler: {RejectingHandler, %{}}
+          )
+        end)
+
+      assert log =~ "Philter rejected GET"
+      assert log =~ "/rejected"
+      assert log =~ "status=413"
+    end
+
+    test "error log is suppressed when log_level: false" do
+      log =
+        capture_log([level: :error], fn ->
+          conn(:get, "/fail")
+          |> Philter.proxy(
+            upstream: "http://localhost:59999",
+            finch_name: Philter.TestFinch,
+            log_level: false
+          )
+        end)
+
+      assert log == ""
     end
   end
 end
