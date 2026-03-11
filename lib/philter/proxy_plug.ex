@@ -24,6 +24,10 @@ defmodule Philter.ProxyPlug do
     * `:receive_timeout` - Response timeout in ms (default: `15_000`)
     * `:max_payload_size` - Max body size for accumulation (default: `1_048_576`)
     * `:persistable_content_types` - Content types to accumulate (default: JSON, XML, text)
+    * `:extra_headers` - Additional `[{name, value}]` headers to send upstream. Replaces any
+      existing header with the same name. Cannot be combined with `:headers`.
+    * `:strip_headers` - List of header names to remove from the outbound request.
+      Cannot be combined with `:headers`.
 
   See `Philter.Config` for global defaults and application configuration.
 
@@ -68,6 +72,12 @@ defmodule Philter.ProxyPlug do
     unless Keyword.has_key?(opts, :upstream) do
       raise ArgumentError,
             "Philter.ProxyPlug requires the :upstream option (e.g., upstream: \"http://api.internal:4000\")"
+    end
+
+    if Keyword.has_key?(opts, :headers) and
+         (Keyword.has_key?(opts, :extra_headers) or Keyword.has_key?(opts, :strip_headers)) do
+      raise ArgumentError,
+            ":headers cannot be combined with :extra_headers or :strip_headers"
     end
 
     opts

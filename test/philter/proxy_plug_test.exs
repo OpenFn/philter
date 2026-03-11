@@ -292,6 +292,81 @@ defmodule Philter.ProxyPlugTest do
     end
   end
 
+  describe "extra_headers and strip_headers" do
+    test "forwards extra_headers to upstream", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/extra", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "x-forwarded-for") == ["1.2.3.4"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      opts =
+        ProxyPlug.init(
+          upstream: upstream,
+          finch_name: finch_name,
+          extra_headers: [{"x-forwarded-for", "1.2.3.4"}]
+        )
+
+      conn =
+        conn(:get, "/extra")
+        |> ProxyPlug.call(opts)
+
+      assert conn.status == 200
+    end
+
+    test "forwards strip_headers to upstream", %{
+      bypass: bypass,
+      upstream: upstream,
+      finch_name: finch_name
+    } do
+      Bypass.expect(bypass, "GET", "/strip", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == []
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      opts =
+        ProxyPlug.init(
+          upstream: upstream,
+          finch_name: finch_name,
+          strip_headers: ["authorization"]
+        )
+
+      conn =
+        conn(:get, "/strip")
+        |> put_req_header("authorization", "Bearer secret")
+        |> ProxyPlug.call(opts)
+
+      assert conn.status == 200
+    end
+
+    test "init raises on :headers combined with :extra_headers" do
+      assert_raise ArgumentError,
+                   ":headers cannot be combined with :extra_headers or :strip_headers",
+                   fn ->
+                     ProxyPlug.init(
+                       upstream: "http://example.com",
+                       headers: [{"host", "example.com"}],
+                       extra_headers: [{"x-foo", "bar"}]
+                     )
+                   end
+    end
+
+    test "init raises on :headers combined with :strip_headers" do
+      assert_raise ArgumentError,
+                   ":headers cannot be combined with :extra_headers or :strip_headers",
+                   fn ->
+                     ProxyPlug.init(
+                       upstream: "http://example.com",
+                       headers: [{"host", "example.com"}],
+                       strip_headers: ["authorization"]
+                     )
+                   end
+    end
+  end
+
   describe "header forwarding" do
     test "forwards non-hop-by-hop request headers", %{
       bypass: bypass,

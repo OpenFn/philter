@@ -519,6 +519,223 @@ defmodule PhilterTest do
     end
   end
 
+  describe "proxy/2 strip_headers" do
+    test "strip_headers removes a named header", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/strip", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == []
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["keep-me"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/strip")
+        |> put_req_header("authorization", "Bearer secret")
+        |> put_req_header("x-custom", "keep-me")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          strip_headers: ["authorization"]
+        )
+
+      assert conn.status == 200
+    end
+
+    test "strip_headers is case-insensitive", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/strip-case", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == []
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/strip-case")
+        |> put_req_header("authorization", "Bearer secret")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          strip_headers: ["Authorization"]
+        )
+
+      assert conn.status == 200
+    end
+
+    test "strip_headers with non-existent header is a no-op", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/strip-noop", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["present"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/strip-noop")
+        |> put_req_header("x-custom", "present")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          strip_headers: ["x-nonexistent"]
+        )
+
+      assert conn.status == 200
+    end
+  end
+
+  describe "proxy/2 extra_headers" do
+    test "extra_headers adds a new header", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/extra", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "x-forwarded-for") == ["1.2.3.4"]
+        # Existing conn headers should still be present
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["original"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/extra")
+        |> put_req_header("x-custom", "original")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          extra_headers: [{"x-forwarded-for", "1.2.3.4"}]
+        )
+
+      assert conn.status == 200
+    end
+
+    test "extra_headers replaces an existing header (case-insensitive)", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/extra-replace", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["replaced"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/extra-replace")
+        |> put_req_header("x-custom", "original")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          extra_headers: [{"x-custom", "replaced"}]
+        )
+
+      assert conn.status == 200
+    end
+
+    test "extra_headers does not get filtered for hop-by-hop", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/extra-hop", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "connection") == ["keep-alive"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/extra-hop")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          extra_headers: [{"connection", "keep-alive"}]
+        )
+
+      assert conn.status == 200
+    end
+  end
+
+  describe "proxy/2 strip_headers + extra_headers combined" do
+    test "strip inbound auth, replace with service auth", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/combined", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer service-token"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/combined")
+        |> put_req_header("authorization", "Bearer user-token")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          strip_headers: ["authorization"],
+          extra_headers: [{"authorization", "Bearer service-token"}]
+        )
+
+      assert conn.status == 200
+    end
+
+    test "strip multiple, add multiple", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/multi-combined", fn conn ->
+        assert Plug.Conn.get_req_header(conn, "authorization") == []
+        assert Plug.Conn.get_req_header(conn, "cookie") == []
+        assert Plug.Conn.get_req_header(conn, "x-custom") == ["keep-me"]
+        assert Plug.Conn.get_req_header(conn, "x-forwarded-for") == ["1.2.3.4"]
+        assert Plug.Conn.get_req_header(conn, "x-request-id") == ["abc123"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/multi-combined")
+        |> put_req_header("authorization", "Bearer secret")
+        |> put_req_header("cookie", "session=abc")
+        |> put_req_header("x-custom", "keep-me")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          strip_headers: ["authorization", "cookie"],
+          extra_headers: [{"x-forwarded-for", "1.2.3.4"}, {"x-request-id", "abc123"}]
+        )
+
+      assert conn.status == 200
+    end
+  end
+
+  describe "proxy/2 header option validation" do
+    test ":headers + :extra_headers raises ArgumentError", %{upstream: upstream} do
+      assert_raise ArgumentError,
+                   ~r/:headers cannot be combined with :extra_headers or :strip_headers/,
+                   fn ->
+                     conn(:get, "/test")
+                     |> Philter.proxy(
+                       upstream: upstream,
+                       finch_name: Philter.TestFinch,
+                       headers: [{"authorization", "Bearer tok"}],
+                       extra_headers: [{"x-extra", "val"}]
+                     )
+                   end
+    end
+
+    test ":headers + :strip_headers raises ArgumentError", %{upstream: upstream} do
+      assert_raise ArgumentError,
+                   ~r/:headers cannot be combined with :extra_headers or :strip_headers/,
+                   fn ->
+                     conn(:get, "/test")
+                     |> Philter.proxy(
+                       upstream: upstream,
+                       finch_name: Philter.TestFinch,
+                       headers: [{"authorization", "Bearer tok"}],
+                       strip_headers: ["x-unwanted"]
+                     )
+                   end
+    end
+
+    test ":headers + both :extra_headers and :strip_headers raises ArgumentError", %{
+      upstream: upstream
+    } do
+      assert_raise ArgumentError,
+                   ~r/:headers cannot be combined with :extra_headers or :strip_headers/,
+                   fn ->
+                     conn(:get, "/test")
+                     |> Philter.proxy(
+                       upstream: upstream,
+                       finch_name: Philter.TestFinch,
+                       headers: [{"authorization", "Bearer tok"}],
+                       extra_headers: [{"x-extra", "val"}],
+                       strip_headers: ["x-unwanted"]
+                     )
+                   end
+    end
+  end
+
   describe "proxy/2 timeout handling" do
     test "returns 504 on timeout" do
       # Start a TCP server that accepts but never responds

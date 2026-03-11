@@ -95,6 +95,8 @@ defmodule Philter do
           path: String.t() | (Plug.Conn.t() -> String.t()),
           handler: module() | {module(), term()},
           headers: [{String.t(), String.t()}],
+          extra_headers: [{String.t(), String.t()}],
+          strip_headers: [String.t()],
           finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
@@ -139,6 +141,20 @@ defmodule Philter do
       default.
       When omitted, `conn.req_headers` are filtered (hop-by-hop removed, keys
       lowercased) and the `host` header is always rewritten to match upstream.
+      Cannot be combined with `:extra_headers` or `:strip_headers`.
+
+    * `:extra_headers` - Additional `[{name, value}]` headers to merge into
+      the outbound request. Applied after hop-by-hop filtering and host
+      rewriting. If an extra header matches an existing header name
+      (case-insensitive), the existing header is replaced. Cannot be combined
+      with `:headers`.
+
+    * `:strip_headers` - List of header names (case-insensitive) to remove
+      from the outbound request. Applied after hop-by-hop filtering and host
+      rewriting but before `:extra_headers`. Cannot be combined with `:headers`.
+
+      When both `:strip_headers` and `:extra_headers` are used, the processing
+      order is: filter hop-by-hop headers → rewrite host → strip → merge extra.
 
     * `:finch_name` - Finch pool name. Default: configured value (see `Philter.Config`).
 
@@ -173,6 +189,7 @@ defmodule Philter do
   """
   @spec proxy(Plug.Conn.t(), proxy_opts()) :: Plug.Conn.t()
   def proxy(conn, opts) do
+    validate_header_opts!(opts)
     upstream = Keyword.fetch!(opts, :upstream)
     config = Config.resolve(opts)
     handler = resolve_handler(opts)
@@ -181,7 +198,18 @@ defmodule Philter do
     path = resolve_path(opts, conn)
     upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
-    outbound_headers = build_outbound_headers(Keyword.get(opts, :headers), conn, upstream)
+    strip_headers = Keyword.get(opts, :strip_headers, [])
+    extra_headers = Keyword.get(opts, :extra_headers, [])
+
+    outbound_headers =
+      build_outbound_headers(
+        Keyword.get(opts, :headers),
+        conn,
+        upstream,
+        strip_headers,
+        extra_headers
+      )
+
     log_level = config.log_level
 
     # Log #1: Request start
@@ -414,6 +442,14 @@ defmodule Philter do
 
   # Private functions
 
+  defp validate_header_opts!(opts) do
+    if Keyword.has_key?(opts, :headers) and
+         (Keyword.has_key?(opts, :extra_headers) or Keyword.has_key?(opts, :strip_headers)) do
+      raise ArgumentError,
+            ":headers cannot be combined with :extra_headers or :strip_headers"
+    end
+  end
+
   defp resolve_handler(opts) do
     case Keyword.get(opts, :handler) do
       nil -> nil
@@ -422,13 +458,19 @@ defmodule Philter do
     end
   end
 
-  defp build_outbound_headers(nil, conn, upstream) do
+  defp build_outbound_headers(nil, conn, upstream, strip_headers, extra_headers) do
+    strip_names = MapSet.new(strip_headers, &String.downcase/1)
+    extra_names = MapSet.new(extra_headers, fn {k, _} -> String.downcase(k) end)
+    remove_names = MapSet.union(strip_names, extra_names)
+
     conn.req_headers
     |> filter_request_headers()
     |> put_host_header(extract_host(upstream))
+    |> Enum.reject(fn {k, _} -> k in remove_names end)
+    |> Kernel.++(extra_headers)
   end
 
-  defp build_outbound_headers(headers, _conn, upstream) do
+  defp build_outbound_headers(headers, _conn, upstream, _strip_headers, _extra_headers) do
     maybe_put_host_header(headers, extract_host(upstream))
   end
 
