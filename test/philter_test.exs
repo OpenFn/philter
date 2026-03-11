@@ -224,7 +224,7 @@ defmodule PhilterTest do
       Bypass.expect(bypass, "POST", "/api", fn conn ->
         assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test"]
         assert Plug.Conn.get_req_header(conn, "content-type") == ["application/json"]
-        # Caller-supplied headers are sent as-is, no hop-by-hop filtering
+        # Caller-supplied headers bypass hop-by-hop filtering (host is still rewritten)
         Plug.Conn.send_resp(conn, 200, "ok")
       end)
 
@@ -265,6 +265,46 @@ defmodule PhilterTest do
       assert conn.status == 200
     end
 
+    test "rewrites host header to match upstream", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/host-check", fn conn ->
+        [host] = Plug.Conn.get_req_header(conn, "host")
+        assert host == "localhost:#{bypass.port}"
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/host-check")
+        |> Map.put(:host, "original-host.example.com")
+        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+
+      assert conn.status == 200
+    end
+
+    test "rewrites host header when caller-supplied headers provided", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/host-check", fn conn ->
+        [host] = Plug.Conn.get_req_header(conn, "host")
+        assert host == "localhost:#{bypass.port}"
+        assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer tok"]
+        Plug.Conn.send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/host-check")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          headers: [
+            {"host", "wrong-host.example.com"},
+            {"authorization", "Bearer tok"}
+          ]
+        )
+
+      assert conn.status == 200
+    end
+
     test "passes caller-supplied headers to handle_request_started metadata", %{
       bypass: bypass,
       upstream: upstream
@@ -285,7 +325,10 @@ defmodule PhilterTest do
         )
 
       assert_receive {:request_started, req_meta}
-      assert req_meta.headers == custom_headers
+      # Custom headers are present, plus host is rewritten to match upstream
+      assert {"authorization", "Bearer tok"} in req_meta.headers
+      assert {"x-custom", "val"} in req_meta.headers
+      assert {"host", _} = List.keyfind(req_meta.headers, "host", 0)
     end
 
     test "invokes handler on error with error info", %{upstream: _upstream} do

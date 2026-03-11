@@ -132,9 +132,10 @@ defmodule Philter do
       callbacks. See `Philter.Handler` for the callback interface.
 
     * `:headers` - Pre-assembled outbound request headers as `[{name, value}]`
-      tuples. When provided, these headers are sent as-is to the upstream
-      (no filtering of `conn.req_headers`, no hop-by-hop removal). When omitted,
-      `conn.req_headers` are filtered (hop-by-hop removed, keys lowercased).
+      tuples. When provided, these replace `conn.req_headers` (no hop-by-hop
+      filtering). When omitted, `conn.req_headers` are filtered (hop-by-hop
+      removed, keys lowercased). In both cases, the `host` header is rewritten
+      to match the upstream server.
 
     * `:finch_name` - Finch pool name. Default: configured value (see `Philter.Config`).
 
@@ -174,7 +175,7 @@ defmodule Philter do
     path = resolve_path(opts, conn)
     upstream_url = build_upstream_url(upstream, path, conn.query_string)
     req_content_type = get_content_type(conn.req_headers)
-    outbound_headers = resolve_outbound_headers(opts, conn)
+    outbound_headers = build_outbound_headers(Keyword.get(opts, :headers), conn, upstream)
 
     # Notify handler of request start
     case notify_request_started(handler, %{
@@ -372,10 +373,30 @@ defmodule Philter do
     end
   end
 
-  defp resolve_outbound_headers(opts, conn) do
-    case Keyword.get(opts, :headers) do
-      nil -> filter_request_headers(conn.req_headers)
-      headers when is_list(headers) -> headers
+  defp build_outbound_headers(nil, conn, upstream) do
+    conn.req_headers
+    |> filter_request_headers()
+    |> put_host_header(extract_host(upstream))
+  end
+
+  defp build_outbound_headers(headers, _conn, upstream) do
+    put_host_header(headers, extract_host(upstream))
+  end
+
+  defp put_host_header(headers, host) do
+    Enum.reject(headers, &host_header?/1) ++ [{"host", host}]
+  end
+
+  defp host_header?({k, _}), do: String.downcase(k) == "host"
+
+  defp extract_host(url) do
+    uri = URI.parse(url)
+
+    case uri.port do
+      nil -> uri.host
+      80 -> uri.host
+      443 -> uri.host
+      port -> "#{uri.host}:#{port}"
     end
   end
 
