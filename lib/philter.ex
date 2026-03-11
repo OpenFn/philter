@@ -452,9 +452,16 @@ defmodule Philter do
 
   defp resolve_handler(opts) do
     case Keyword.get(opts, :handler) do
-      nil -> nil
-      {module, args} when is_atom(module) -> {module, args}
-      module when is_atom(module) -> {module, []}
+      nil ->
+        nil
+
+      {module, args} when is_atom(module) ->
+        Code.ensure_loaded!(module)
+        {module, args}
+
+      module when is_atom(module) ->
+        Code.ensure_loaded!(module)
+        {module, []}
     end
   end
 
