@@ -34,7 +34,12 @@ defmodule Philter.TimingTest do
 
       ref = Timing.start_capture()
 
-      :telemetry.execute([:finch, :queue, :stop], %{duration: one_us_native * 10, idle_time: one_us_native * 2}, %{})
+      :telemetry.execute(
+        [:finch, :queue, :stop],
+        %{duration: one_us_native * 10, idle_time: one_us_native * 2},
+        %{}
+      )
+
       :telemetry.execute([:finch, :connect, :stop], %{duration: one_us_native * 20}, %{})
       :telemetry.execute([:finch, :send, :stop], %{duration: one_us_native * 30}, %{})
       :telemetry.execute([:finch, :recv, :stop], %{duration: one_us_native * 40}, %{})
@@ -134,7 +139,12 @@ defmodule Philter.TimingTest do
       one_us_native = System.convert_time_unit(1, :microsecond, :native)
 
       ref = Timing.start_capture()
-      :telemetry.execute([:finch, :queue, :stop], %{duration: one_us_native * 10, idle_time: one_us_native * 7}, %{})
+
+      :telemetry.execute(
+        [:finch, :queue, :stop],
+        %{duration: one_us_native * 10, idle_time: one_us_native * 7},
+        %{}
+      )
 
       result = Timing.collect(ref)
 

@@ -18,13 +18,13 @@ defmodule Philter.Timing do
   """
 
   @type t :: %{
-    queue_us: non_neg_integer() | nil,
-    connect_us: non_neg_integer() | nil,
-    send_us: non_neg_integer() | nil,
-    recv_us: non_neg_integer() | nil,
-    idle_time_us: non_neg_integer() | nil,
-    reused_connection?: boolean()
-  }
+          queue_us: non_neg_integer() | nil,
+          connect_us: non_neg_integer() | nil,
+          send_us: non_neg_integer() | nil,
+          recv_us: non_neg_integer() | nil,
+          idle_time_us: non_neg_integer() | nil,
+          reused_connection?: boolean()
+        }
 
   @events [
     [:finch, :queue, :stop],
@@ -100,7 +100,9 @@ defmodule Philter.Timing do
   # cleanup/1 handles deletion after all fields are extracted.
   defp get_duration(ref, event) do
     case Process.get({ref, event}) do
-      nil -> nil
+      nil ->
+        nil
+
       %{duration: duration} ->
         System.convert_time_unit(duration, :native, :microsecond)
     end
@@ -110,10 +112,14 @@ defmodule Philter.Timing do
   # alongside duration. Read from the same stored measurements.
   defp get_idle_time(ref) do
     case Process.get({ref, [:finch, :queue, :stop]}) do
-      nil -> nil
+      nil ->
+        nil
+
       %{idle_time: idle_time} ->
         System.convert_time_unit(idle_time, :native, :microsecond)
-      _no_idle_time -> nil
+
+      _no_idle_time ->
+        nil
     end
   end
 

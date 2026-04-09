@@ -826,7 +826,9 @@ defmodule PhilterTest do
       assert is_integer(timing.send_us) and timing.send_us >= 0
       assert is_integer(timing.recv_us) and timing.recv_us >= 0
       assert is_boolean(timing.reused_connection?)
-      assert timing.idle_time_us == nil or (is_integer(timing.idle_time_us) and timing.idle_time_us >= 0)
+
+      assert timing.idle_time_us == nil or
+               (is_integer(timing.idle_time_us) and timing.idle_time_us >= 0)
     end
 
     test "error paths still get timing", %{upstream: _upstream} do
