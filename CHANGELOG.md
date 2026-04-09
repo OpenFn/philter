@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-09
+
+### Changed
+- **Breaking**: `finished_result` replaces top-level `duration_us` with `timing` map containing `total_us` and per-phase breakdown fields (`queue_us`, `connect_us`, `send_us`, `recv_us`, `idle_time_us`, `reused_connection?`)
+
+### Added
+- `collect_timing: true` option for `proxy/2` enables per-phase timing capture (queue, connect, send, recv, idle_time, reused_connection) from HTTP client telemetry
+- `Philter.Timing` module for telemetry-based phase timing with lazy global handler attachment
+
 ## [0.2.1] - 2026-03-11
 
 ### Fixed
