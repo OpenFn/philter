@@ -10,8 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-04-09
 
 ### Changed
-- **Breaking**: `finished_result` replaces top-level `duration_us` with `timing` map containing `total_us` and per-phase breakdown fields (`queue_us`, `connect_us`, `send_us`, `recv_us`, `idle_time_us`, `reused_connection?`)
-- **Breaking**: `body_observation` removes `duration_us` and `time_to_first_byte_us` — all timing is now consolidated in `finished_result.timing`; observations are purely content metadata (hash, size, preview, body)
+- **Breaking**: All timing consolidated into `finished_result.timing` map — `finished_result.duration_us` replaced by `timing.total_us`, and `body_observation.duration_us` / `body_observation.time_to_first_byte_us` removed. Observations are now purely content metadata (hash, size, preview, body)
 
 ### Added
 - `collect_timing: true` option for `proxy/2` enables per-phase timing capture (queue, connect, send, recv, idle_time, reused_connection) from HTTP client telemetry
