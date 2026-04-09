@@ -173,6 +173,11 @@ defmodule Philter do
     * `:log_level` - Logger level for lifecycle events (`:debug`, `:info`, etc.)
       or `false` to disable all logging. Default: `:debug`.
 
+    * `:collect_timing` - When `true`, captures per-phase timing breakdown
+      (queue, connect, send, recv, idle_time, reused_connection) from HTTP client
+      telemetry events. Phase fields in `timing` are `nil` when disabled.
+      Default: `false`.
+
   ## Return Value
 
   Returns the `conn` with response sent. Observations are stored in:

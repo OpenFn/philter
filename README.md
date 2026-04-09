@@ -100,7 +100,7 @@ defmodule MyApp.ProxyHandler do
 
   @impl true
   def handle_response_finished(result, state) do
-    Logger.info("Completed: #{result.status} in #{result.duration_us}us")
+    Logger.info("Completed: #{result.status} in #{result.timing.total_us}us")
     # result contains :request_observation and :response_observation
     {:ok, state}
   end
