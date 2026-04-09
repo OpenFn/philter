@@ -17,6 +17,7 @@ defmodule Philter.Timing do
   processes handle one request at a time.
   """
 
+  @typedoc false
   @type t :: %{
           queue_us: non_neg_integer() | nil,
           connect_us: non_neg_integer() | nil,

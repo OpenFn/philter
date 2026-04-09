@@ -94,7 +94,9 @@ defmodule Philter.Handler do
   Result passed to handle_response_finished/2.
 
   Contains observations for both request and response bodies, plus any error
-  that occurred during proxying.
+  that occurred during proxying. The `:status` field is `nil` when the error
+  occurred before receiving a response from upstream (e.g., connection refused,
+  pool checkout timeout).
   """
   @type finished_result :: %{
           required(:request_observation) => body_observation(),
