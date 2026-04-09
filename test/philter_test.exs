@@ -219,6 +219,7 @@ defmodule PhilterTest do
       assert result.error == nil
       assert result.request_observation.hash != nil
       assert result.response_observation.hash != nil
+      assert is_integer(result.timing.total_us) and result.timing.total_us > 0
     end
 
     test "uses caller-supplied headers when provided", %{bypass: bypass, upstream: upstream} do
@@ -399,6 +400,7 @@ defmodule PhilterTest do
       assert_receive {:response_finished, result}
       assert result.error != nil
       assert result.status == nil
+      assert is_integer(result.timing.total_us) and result.timing.total_us > 0
     end
 
     test "rejects proxy with handler-controlled status and body", %{upstream: upstream} do
@@ -759,6 +761,88 @@ defmodule PhilterTest do
 
       assert conn.status == 504
       assert conn.halted
+    end
+  end
+
+  describe "proxy/2 timing" do
+    test "without collect_timing, timing has total_us and nil phase fields", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/timing-default", fn conn ->
+        conn
+        |> put_resp_header("content-type", "text/plain")
+        |> send_resp(200, "hello")
+      end)
+
+      conn =
+        conn(:get, "/timing-default")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          handler: {TestHandler, %{test_pid: self()}}
+        )
+
+      assert conn.status == 200
+
+      assert_receive {:response_finished, result}
+      timing = result.timing
+
+      assert is_integer(timing.total_us) and timing.total_us > 0
+      assert timing.queue_us == nil
+      assert timing.connect_us == nil
+      assert timing.send_us == nil
+      assert timing.recv_us == nil
+      assert timing.idle_time_us == nil
+      assert timing.reused_connection? == nil
+    end
+
+    test "with collect_timing: true, phase timing fields are populated", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/timing-collect", fn conn ->
+        conn
+        |> put_resp_header("content-type", "text/plain")
+        |> send_resp(200, "hello")
+      end)
+
+      conn =
+        conn(:get, "/timing-collect")
+        |> Philter.proxy(
+          upstream: upstream,
+          finch_name: Philter.TestFinch,
+          handler: {TestHandler, %{test_pid: self()}},
+          collect_timing: true
+        )
+
+      assert conn.status == 200
+
+      assert_receive {:response_finished, result}
+      timing = result.timing
+
+      assert is_integer(timing.total_us) and timing.total_us > 0
+      assert is_integer(timing.queue_us) and timing.queue_us >= 0
+      assert is_integer(timing.send_us) and timing.send_us >= 0
+      assert is_integer(timing.recv_us) and timing.recv_us >= 0
+      assert is_boolean(timing.reused_connection?)
+      assert timing.idle_time_us == nil or (is_integer(timing.idle_time_us) and timing.idle_time_us >= 0)
+    end
+
+    test "error paths still get timing", %{upstream: _upstream} do
+      conn =
+        conn(:get, "/test")
+        |> Philter.proxy(
+          upstream: "http://localhost:59999",
+          finch_name: Philter.TestFinch,
+          handler: {TestHandler, %{test_pid: self()}}
+        )
+
+      assert conn.status == 502
+
+      assert_receive {:response_finished, result}
+      assert result.error != nil
+      assert is_integer(result.timing.total_us) and result.timing.total_us > 0
     end
   end
 
