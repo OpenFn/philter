@@ -78,6 +78,23 @@ defmodule Philter.Handler do
         }
 
   @typedoc """
+  Per-phase timing breakdown for a proxy request.
+
+  When `collect_timing: true` is set, phase fields are populated from HTTP
+  client telemetry. When timing capture is off, phase fields are `nil` and
+  `reused_connection?` is `nil`.
+  """
+  @type timing :: %{
+          required(:total_us) => non_neg_integer(),
+          required(:queue_us) => non_neg_integer() | nil,
+          required(:connect_us) => non_neg_integer() | nil,
+          required(:send_us) => non_neg_integer() | nil,
+          required(:recv_us) => non_neg_integer() | nil,
+          required(:idle_time_us) => non_neg_integer() | nil,
+          required(:reused_connection?) => boolean() | nil
+        }
+
+  @typedoc """
   Result passed to handle_response_finished/2.
 
   Contains observations for both request and response bodies, plus any error
@@ -90,7 +107,7 @@ defmodule Philter.Handler do
           required(:upstream_url) => String.t(),
           required(:method) => String.t(),
           required(:status) => non_neg_integer() | nil,
-          required(:duration_us) => non_neg_integer()
+          required(:timing) => timing()
         }
 
   @doc """
