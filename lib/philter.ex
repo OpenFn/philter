@@ -65,7 +65,7 @@ defmodule Philter do
         @impl true
         def handle_response_finished(result, state) do
           # result contains :request_observation and :response_observation
-          # each with :hash, :size, :body, :preview, :duration_us
+          # each with :hash, :size, :body, :preview
           {:ok, state}
         end
       end
@@ -185,8 +185,7 @@ defmodule Philter do
     * `conn.private[:philter_request_observation]` - Request body observation
     * `conn.private[:philter_response_observation]` - Response body observation
 
-  Each observation contains `:hash`, `:size`, `:body` (if accumulated), `:preview`,
-  and `:duration_us`.
+  Each observation contains `:hash`, `:size`, `:body` (if accumulated), and `:preview`.
 
   ## Error Handling
 

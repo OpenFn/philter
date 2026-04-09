@@ -75,7 +75,7 @@ resp_obs = conn.private[:philter_response_observation]
 # - :size - Total body size in bytes
 # - :preview - First 64KB of the body (UTF-8 safe truncation)
 # - :body - Full body (only if under max_payload_size and content-type matches)
-# - :duration_us - Processing time in microseconds
+# Timing data is on result.timing (see Philter.Handler.timing())
 ```
 
 ## Handler Callbacks

@@ -8,8 +8,6 @@ defmodule Philter.ObservationTest do
       obs = Observation.new()
       assert obs.size == 0
       assert obs.preview == <<>>
-      assert obs.started_at != nil
-      assert obs.first_byte_at == nil
       assert obs.accumulate? == false
       assert obs.accumulated_body == nil
     end
@@ -64,20 +62,6 @@ defmodule Philter.ObservationTest do
       assert byte_size(obs.preview) == 64 * 1024
       assert obs.size == 64 * 1024 + 5
     end
-
-    test "records first byte time on first chunk only" do
-      obs = Observation.new()
-      assert obs.first_byte_at == nil
-
-      obs = Observation.update(obs, "data")
-      first_time = obs.first_byte_at
-      assert first_time != nil
-
-      Process.sleep(1)
-      obs = Observation.update(obs, "more")
-      # Unchanged
-      assert obs.first_byte_at == first_time
-    end
   end
 
   describe "finalize/1" do
@@ -100,8 +84,7 @@ defmodule Philter.ObservationTest do
       assert Map.has_key?(obs, :hash)
       assert Map.has_key?(obs, :preview)
       assert Map.has_key?(obs, :size)
-      assert Map.has_key?(obs, :duration_us)
-      assert Map.has_key?(obs, :time_to_first_byte_us)
+      assert Map.has_key?(obs, :body)
     end
 
     test "hash is correct for multi-chunk data" do

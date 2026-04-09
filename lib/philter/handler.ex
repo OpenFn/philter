@@ -65,16 +65,12 @@ defmodule Philter.Handler do
   - `:size` - Total body size in bytes
   - `:body` - Full body content if accumulated, nil otherwise
   - `:preview` - First 64KB of body (always present)
-  - `:duration_us` - Time to fully transfer body in microseconds
-  - `:time_to_first_byte_us` - Time to first byte in microseconds
   """
   @type body_observation :: %{
           required(:hash) => String.t(),
           required(:size) => non_neg_integer(),
           required(:body) => binary() | nil,
-          required(:preview) => binary(),
-          required(:duration_us) => non_neg_integer(),
-          required(:time_to_first_byte_us) => non_neg_integer() | nil
+          required(:preview) => binary()
         }
 
   @typedoc """
