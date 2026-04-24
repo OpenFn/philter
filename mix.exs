@@ -79,7 +79,7 @@ defmodule Philter.MixProject do
       main: "readme",
       source_url: @source_url,
       source_ref: "v#{@version}",
-      formatters: ["html"],
+      formatters: ["html", "markdown"],
       extras: [
         "README.md",
         "CHANGELOG.md"
