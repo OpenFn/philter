@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-09
+
+### Changed
+- **Breaking**: All timing consolidated into `finished_result.timing` map — `finished_result.duration_us` replaced by `timing.total_us`, and `body_observation.duration_us` / `body_observation.time_to_first_byte_us` removed. Observations are now purely content metadata (hash, size, preview, body)
+
+### Added
+- `collect_timing: true` option for `proxy/2` enables per-phase timing capture (queue, connect, send, recv, idle_time, reused_connection) from HTTP client telemetry
+- `Philter.Timing` module for telemetry-based phase timing with lazy global handler attachment
+
 ## [0.2.1] - 2026-03-11
 
 ### Fixed

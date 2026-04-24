@@ -65,7 +65,7 @@ defmodule Philter do
         @impl true
         def handle_response_finished(result, state) do
           # result contains :request_observation and :response_observation
-          # each with :hash, :size, :body, :preview, :duration_us
+          # each with :hash, :size, :body, :preview
           {:ok, state}
         end
       end
@@ -101,7 +101,8 @@ defmodule Philter do
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
           persistable_content_types: [String.t()],
-          log_level: Logger.level() | false
+          log_level: Logger.level() | false,
+          collect_timing: boolean()
         ]
 
   @doc """
@@ -172,6 +173,11 @@ defmodule Philter do
     * `:log_level` - Logger level for lifecycle events (`:debug`, `:info`, etc.)
       or `false` to disable all logging. Default: `:debug`.
 
+    * `:collect_timing` - When `true`, captures per-phase timing breakdown
+      (queue, connect, send, recv, idle_time, reused_connection) from HTTP client
+      telemetry events. Phase fields in `timing` are `nil` when disabled.
+      Default: `false`.
+
   ## Return Value
 
   Returns the `conn` with response sent. Observations are stored in:
@@ -179,8 +185,7 @@ defmodule Philter do
     * `conn.private[:philter_request_observation]` - Request body observation
     * `conn.private[:philter_response_observation]` - Response body observation
 
-  Each observation contains `:hash`, `:size`, `:body` (if accumulated), `:preview`,
-  and `:duration_us`.
+  Each observation contains `:hash`, `:size`, `:body` (if accumulated), and `:preview`.
 
   ## Error Handling
 
@@ -270,13 +275,15 @@ defmodule Philter do
           upstream_url: upstream_url
         }
 
-        result =
-          Finch.stream_while(
+        collect_timing? = Keyword.get(opts, :collect_timing, false)
+
+        {result, timing} =
+          stream_with_timing(
             request,
             config.finch_name,
             acc,
-            &handle_stream_message/2,
-            receive_timeout: config.receive_timeout
+            [receive_timeout: config.receive_timeout],
+            collect_timing?
           )
 
         case result do
@@ -309,7 +316,7 @@ defmodule Philter do
                 upstream_url: upstream_url,
                 method: acc.conn.method,
                 status: acc.conn.status,
-                duration_us: duration_us
+                timing: build_timing(duration_us, timing)
               },
               handler_state
             )
@@ -333,7 +340,8 @@ defmodule Philter do
               started_at: started_at,
               error: {:timeout, reason},
               status: 504,
-              body: "Gateway Timeout"
+              body: "Gateway Timeout",
+              timing: timing
             })
 
           {:error, %Mint.TransportError{reason: reason}, acc}
@@ -344,7 +352,8 @@ defmodule Philter do
               started_at: started_at,
               error: {:timeout, reason},
               status: 504,
-              body: "Gateway Timeout"
+              body: "Gateway Timeout",
+              timing: timing
             })
 
           {:error, error, acc} ->
@@ -354,7 +363,8 @@ defmodule Philter do
               started_at: started_at,
               error: error,
               status: 502,
-              body: "Bad Gateway"
+              body: "Bad Gateway",
+              timing: timing
             })
         end
 
@@ -595,6 +605,7 @@ defmodule Philter do
     end
 
     observations = Observer.finalize(acc.observer)
+    duration_us = System.monotonic_time(:microsecond) - info.started_at
     handler_state = handler_state(acc)
 
     notify_response_finished(
@@ -606,12 +617,48 @@ defmodule Philter do
         upstream_url: info.upstream_url,
         method: info.method,
         status: nil,
-        duration_us: System.monotonic_time(:microsecond) - info.started_at
+        timing: build_timing(duration_us, info.timing)
       },
       handler_state
     )
 
     acc.conn |> send_resp(info.status, info.body) |> halt()
+  end
+
+  defp stream_with_timing(request, finch_name, acc, opts, collect_timing?) do
+    ref =
+      if collect_timing? do
+        Philter.Timing.ensure_attached()
+        Philter.Timing.start_capture()
+      end
+
+    try do
+      Finch.stream_while(request, finch_name, acc, &handle_stream_message/2, opts)
+    catch
+      kind, reason ->
+        if ref, do: Philter.Timing.collect(ref)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    else
+      result ->
+        timing = if ref, do: Philter.Timing.collect(ref)
+        {result, timing}
+    end
+  end
+
+  defp build_timing(total_us, nil) do
+    %{
+      total_us: total_us,
+      queue_us: nil,
+      connect_us: nil,
+      send_us: nil,
+      recv_us: nil,
+      idle_time_us: nil,
+      reused_connection?: nil
+    }
+  end
+
+  defp build_timing(total_us, phase_timing) do
+    Map.put(phase_timing, :total_us, total_us)
   end
 
   defp notify_request_started(nil, _metadata), do: {:ok, nil}

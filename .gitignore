@@ -1,32 +1,15 @@
-# Build
-/_build/
-/deps/
-/doc/
-
-# Dialyzer
-/priv/plts/
-
-# Test
-/cover/
-
-# Package
-philter-*.tar
+/_build
+/cover
+/deps
+/doc
+/.fetch
+erl_crash.dump
+*.ez
+*.beam
+/config/*.secret.exs
+.elixir_ls/
+priv/plts
+/philter-*.tar
 /philter-*/
 
-# VM crash dumps
-erl_crash.dump
-
-# Archive artifacts
-*.ez
-
-# Temporary files
-/tmp/
-
-# IDE
-.idea/
-*.swp
-.elixir_ls/
-.vscode/
-
-# OS
-.DS_Store
+.claude/settings.local.json

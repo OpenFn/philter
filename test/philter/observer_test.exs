@@ -107,7 +107,7 @@ defmodule Philter.ObserverTest do
       assert %{request: %{}, response: %{}} = result
 
       # Verify both observations have correct keys
-      for key <- [:hash, :size, :preview, :body, :duration_us, :time_to_first_byte_us] do
+      for key <- [:hash, :size, :preview, :body] do
         assert Map.has_key?(result.request, key), "request missing #{key}"
         assert Map.has_key?(result.response, key), "response missing #{key}"
       end
@@ -234,16 +234,14 @@ defmodule Philter.ObserverTest do
                hash: ^empty_hash,
                size: 0,
                body: nil,
-               preview: "",
-               time_to_first_byte_us: nil
+               preview: ""
              } = result.request
 
       assert %{
                hash: ^empty_hash,
                size: 0,
                body: nil,
-               preview: "",
-               time_to_first_byte_us: nil
+               preview: ""
              } = result.response
     end
   end

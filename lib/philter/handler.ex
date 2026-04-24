@@ -65,23 +65,38 @@ defmodule Philter.Handler do
   - `:size` - Total body size in bytes
   - `:body` - Full body content if accumulated, nil otherwise
   - `:preview` - First 64KB of body (always present)
-  - `:duration_us` - Time to fully transfer body in microseconds
-  - `:time_to_first_byte_us` - Time to first byte in microseconds
   """
   @type body_observation :: %{
           required(:hash) => String.t(),
           required(:size) => non_neg_integer(),
           required(:body) => binary() | nil,
-          required(:preview) => binary(),
-          required(:duration_us) => non_neg_integer(),
-          required(:time_to_first_byte_us) => non_neg_integer() | nil
+          required(:preview) => binary()
+        }
+
+  @typedoc """
+  Per-phase timing breakdown for a proxy request.
+
+  When `collect_timing: true` is set, phase fields are populated from HTTP
+  client telemetry. When timing capture is off, phase fields are `nil` and
+  `reused_connection?` is `nil`.
+  """
+  @type timing :: %{
+          required(:total_us) => non_neg_integer(),
+          required(:queue_us) => non_neg_integer() | nil,
+          required(:connect_us) => non_neg_integer() | nil,
+          required(:send_us) => non_neg_integer() | nil,
+          required(:recv_us) => non_neg_integer() | nil,
+          required(:idle_time_us) => non_neg_integer() | nil,
+          required(:reused_connection?) => boolean() | nil
         }
 
   @typedoc """
   Result passed to handle_response_finished/2.
 
   Contains observations for both request and response bodies, plus any error
-  that occurred during proxying.
+  that occurred during proxying. The `:status` field is `nil` when the error
+  occurred before receiving a response from upstream (e.g., connection refused,
+  pool checkout timeout).
   """
   @type finished_result :: %{
           required(:request_observation) => body_observation(),
@@ -90,7 +105,7 @@ defmodule Philter.Handler do
           required(:upstream_url) => String.t(),
           required(:method) => String.t(),
           required(:status) => non_neg_integer() | nil,
-          required(:duration_us) => non_neg_integer()
+          required(:timing) => timing()
         }
 
   @doc """

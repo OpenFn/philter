@@ -75,7 +75,6 @@ resp_obs = conn.private[:philter_response_observation]
 # - :size - Total body size in bytes
 # - :preview - First 64KB of the body (UTF-8 safe truncation)
 # - :body - Full body (only if under max_payload_size and content-type matches)
-# - :duration_us - Processing time in microseconds
 ```
 
 ## Handler Callbacks
@@ -100,7 +99,7 @@ defmodule MyApp.ProxyHandler do
 
   @impl true
   def handle_response_finished(result, state) do
-    Logger.info("Completed: #{result.status} in #{result.duration_us}us")
+    Logger.info("Completed: #{result.status} in #{result.timing.total_us}us")
     # result contains :request_observation and :response_observation
     {:ok, state}
   end

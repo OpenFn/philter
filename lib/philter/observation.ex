@@ -2,9 +2,9 @@ defmodule Philter.Observation do
   @moduledoc false
   # Internal module: Incremental observation capture for streaming bodies.
   #
-  # Captures hash (SHA256), preview (first 64KB), size, and timing data
-  # incrementally as chunks arrive. Optionally accumulates the full body
-  # if under a size threshold.
+  # Captures hash (SHA256), preview (first 64KB), and size incrementally
+  # as chunks arrive. Optionally accumulates the full body if under a size
+  # threshold.
   #
   # ## Body Accumulation
   #
@@ -24,8 +24,6 @@ defmodule Philter.Observation do
     :hash_state,
     :preview,
     :size,
-    :started_at,
-    :first_byte_at,
     # Accumulation fields
     :accumulate?,
     :accumulated_body,
@@ -37,8 +35,6 @@ defmodule Philter.Observation do
           hash_state: term(),
           preview: binary(),
           size: non_neg_integer(),
-          started_at: integer(),
-          first_byte_at: integer() | nil,
           accumulate?: boolean(),
           accumulated_body: iodata() | nil,
           max_size: non_neg_integer(),
@@ -66,8 +62,6 @@ defmodule Philter.Observation do
       hash_state: :crypto.hash_init(:sha256),
       preview: <<>>,
       size: 0,
-      started_at: System.monotonic_time(:microsecond),
-      first_byte_at: nil,
       accumulate?: accumulate?,
       accumulated_body: if(accumulate?, do: [], else: nil),
       max_size: max_size,
@@ -76,12 +70,11 @@ defmodule Philter.Observation do
   end
 
   @doc """
-  Updates observation with a chunk. Updates hash, preview, size, timing,
+  Updates observation with a chunk. Updates hash, preview, size,
   and accumulated body (if enabled and under threshold).
   """
   @spec update(t(), binary()) :: t()
   def update(%__MODULE__{} = obs, chunk) when is_binary(chunk) do
-    now = System.monotonic_time(:microsecond)
     chunk_size = byte_size(chunk)
     new_size = obs.size + chunk_size
 
@@ -91,8 +84,6 @@ defmodule Philter.Observation do
       hash_state: :crypto.hash_update(obs.hash_state, chunk),
       preview: capture_preview(obs.preview, chunk),
       size: new_size,
-      started_at: obs.started_at,
-      first_byte_at: obs.first_byte_at || now,
       accumulate?: obs.accumulate?,
       accumulated_body: accumulated_body,
       max_size: obs.max_size,
@@ -129,8 +120,6 @@ defmodule Philter.Observation do
   - `:size` - total bytes
   - `:preview` - first 64KB (UTF-8 safe)
   - `:body` - full body binary if accumulated, nil otherwise
-  - `:duration_us` - total microseconds
-  - `:time_to_first_byte_us` - microseconds to first chunk (nil if no data)
   """
   @spec finalize(t()) :: Philter.Handler.body_observation()
   def finalize(%__MODULE__{} = obs) do
@@ -142,9 +131,7 @@ defmodule Philter.Observation do
       hash: hash,
       preview: preview,
       size: obs.size,
-      body: body,
-      duration_us: System.monotonic_time(:microsecond) - obs.started_at,
-      time_to_first_byte_us: time_to_first_byte(obs)
+      body: body
     }
   end
 
@@ -171,7 +158,4 @@ defmodule Philter.Observation do
     <<captured::binary-size(to_capture), _rest::binary>> = chunk
     existing <> captured
   end
-
-  defp time_to_first_byte(%{first_byte_at: nil}), do: nil
-  defp time_to_first_byte(%{first_byte_at: first, started_at: started}), do: first - started
 end
