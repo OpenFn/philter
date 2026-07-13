@@ -822,13 +822,15 @@ defmodule PhilterTest do
       timing = result.timing
 
       assert is_integer(timing.total_us) and timing.total_us > 0
-      assert is_integer(timing.queue_us) and timing.queue_us >= 0
+      assert is_integer(timing.connect_us) and timing.connect_us >= 0
       assert is_integer(timing.send_us) and timing.send_us >= 0
       assert is_integer(timing.recv_us) and timing.recv_us >= 0
-      assert is_boolean(timing.reused_connection?)
 
-      assert timing.idle_time_us == nil or
-               (is_integer(timing.idle_time_us) and timing.idle_time_us >= 0)
+      # No connection pool under the Mint transport: queue/idle are always nil
+      # and connections are never reused.
+      assert timing.queue_us == nil
+      assert timing.idle_time_us == nil
+      assert timing.reused_connection? == false
     end
 
     test "error paths still get timing", %{upstream: _upstream} do

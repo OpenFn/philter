@@ -7,7 +7,6 @@ defmodule Philter.Config do
   ## Application Configuration
 
       config :philter,
-        finch_name: MyApp.Finch,
         receive_timeout: 15_000,
         max_payload_size: 1_048_576,
         persistable_content_types: ["application/json", "text/xml", "text/*"]
@@ -24,11 +23,18 @@ defmodule Philter.Config do
 
   ## Options
 
-  - `:finch_name` - Name of the Finch pool to use (default: `Philter.Finch`)
+  - `:finch_name` - **Deprecated.** No longer used since the transport moved from
+    Finch to a Mint-direct implementation. Still accepted (and ignored) so
+    existing configuration does not crash (default: `Philter.Finch`)
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
   - `:log_level` - Logger level for lifecycle events, or `false` to disable (default: `:debug`)
+  - `:block_private_networks` - Reject upstreams that resolve to private, loopback,
+    link-local or otherwise internal ranges (SSRF egress guard, default: `true`)
+  - `:allowed_hosts` - Hosts that bypass the egress block check entirely. Exact
+    match after downcase + trailing-dot strip (default: `[]`)
+  - `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: 5_000)
 
   ## Default Persistable Content Types
 
@@ -47,6 +53,9 @@ defmodule Philter.Config do
   @default_receive_timeout 15_000
   @default_max_payload_size 1_048_576
   @default_log_level :debug
+  @default_block_private_networks true
+  @default_allowed_hosts []
+  @default_dns_timeout 5_000
   @default_persistable_content_types [
     "application/json",
     "application/xml",
@@ -60,7 +69,10 @@ defmodule Philter.Config do
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
           persistable_content_types: [String.t()],
-          log_level: Logger.level() | false
+          log_level: Logger.level() | false,
+          block_private_networks: boolean(),
+          allowed_hosts: [String.t()],
+          dns_timeout: pos_integer()
         }
 
   @doc """
@@ -170,6 +182,63 @@ defmodule Philter.Config do
   end
 
   @doc """
+  Returns whether upstreams resolving to internal ranges are blocked.
+
+  ## Examples
+
+      iex> Philter.Config.block_private_networks()
+      true
+
+      iex> Philter.Config.block_private_networks(block_private_networks: false)
+      false
+
+  """
+  @spec block_private_networks(keyword()) :: boolean()
+  def block_private_networks(opts \\ []) do
+    Keyword.get_lazy(opts, :block_private_networks, fn ->
+      Application.get_env(:philter, :block_private_networks, @default_block_private_networks)
+    end)
+  end
+
+  @doc """
+  Returns the list of hosts that bypass the egress block check.
+
+  ## Examples
+
+      iex> Philter.Config.allowed_hosts()
+      []
+
+      iex> Philter.Config.allowed_hosts(allowed_hosts: ["api.internal"])
+      ["api.internal"]
+
+  """
+  @spec allowed_hosts(keyword()) :: [String.t()]
+  def allowed_hosts(opts \\ []) do
+    Keyword.get_lazy(opts, :allowed_hosts, fn ->
+      Application.get_env(:philter, :allowed_hosts, @default_allowed_hosts)
+    end)
+  end
+
+  @doc """
+  Returns the DNS resolution timeout in milliseconds.
+
+  ## Examples
+
+      iex> Philter.Config.dns_timeout()
+      5_000
+
+      iex> Philter.Config.dns_timeout(dns_timeout: 1_000)
+      1_000
+
+  """
+  @spec dns_timeout(keyword()) :: pos_integer()
+  def dns_timeout(opts \\ []) do
+    Keyword.get_lazy(opts, :dns_timeout, fn ->
+      Application.get_env(:philter, :dns_timeout, @default_dns_timeout)
+    end)
+  end
+
+  @doc """
   Returns all configuration as a map, with per-request overrides applied.
 
   Useful for getting the full resolved config in one call.
@@ -188,7 +257,10 @@ defmodule Philter.Config do
       receive_timeout: receive_timeout(opts),
       max_payload_size: max_payload_size(opts),
       persistable_content_types: persistable_content_types(opts),
-      log_level: log_level(opts)
+      log_level: log_level(opts),
+      block_private_networks: block_private_networks(opts),
+      allowed_hosts: allowed_hosts(opts),
+      dns_timeout: dns_timeout(opts)
     }
   end
 

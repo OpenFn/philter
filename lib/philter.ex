@@ -10,24 +10,12 @@ defmodule Philter do
   > Here it evokes both *filtering* (the proxy inspects and forwards HTTP traffic)
   > and the Elixir ecosystem's alchemical tradition.
 
-  ## Finch Setup (Required)
+  ## HTTP Client
 
-  Philter requires a running Finch HTTP client instance. Add to your application's
-  supervision tree:
-
-      # lib/my_app/application.ex
-      children = [
-        {Finch, name: MyApp.Finch}
-      ]
-
-  Then configure Philter to use it:
-
-      # config/config.exs
-      config :philter, finch_name: MyApp.Finch
-
-  Or pass it per-request:
-
-      Philter.proxy(conn, upstream: "https://api.example.com", finch_name: MyApp.Finch)
+  Philter uses a Mint-direct transport that resolves the upstream hostname,
+  validates the resolved addresses against the SSRF egress policy (see
+  `Philter.Egress`), and pins the connection to a validated IP. No Finch pool is
+  needed; the `:finch_name` option is deprecated and ignored.
 
   ## Quick Start
 
@@ -45,7 +33,6 @@ defmodule Philter do
 
       # config/config.exs
       config :philter,
-        finch_name: MyApp.Finch,
         receive_timeout: 30_000,
         max_payload_size: 5_242_880
 
@@ -75,7 +62,7 @@ defmodule Philter do
   import Plug.Conn
   require Logger
 
-  alias Philter.{Config, Observer}
+  alias Philter.{Config, Egress, Observer, Transport}
 
   @timeout_reasons [:timeout, :connect_timeout, {:closed, :timeout}]
 
@@ -102,7 +89,10 @@ defmodule Philter do
           max_payload_size: pos_integer(),
           persistable_content_types: [String.t()],
           log_level: Logger.level() | false,
-          collect_timing: boolean()
+          collect_timing: boolean(),
+          block_private_networks: boolean(),
+          allowed_hosts: [String.t()],
+          dns_timeout: pos_integer()
         ]
 
   @doc """
@@ -157,7 +147,9 @@ defmodule Philter do
       When both `:strip_headers` and `:extra_headers` are used, the processing
       order is: filter hop-by-hop headers → rewrite host → strip → merge extra.
 
-    * `:finch_name` - Finch pool name. Default: configured value (see `Philter.Config`).
+    * `:finch_name` - **Deprecated and ignored.** The transport moved from Finch
+      to a Mint-direct implementation, so no Finch pool is used. Accepting it
+      keeps existing callers from crashing.
 
     * `:receive_timeout` - Response timeout in milliseconds. Default: `15_000`.
 
@@ -173,10 +165,22 @@ defmodule Philter do
     * `:log_level` - Logger level for lifecycle events (`:debug`, `:info`, etc.)
       or `false` to disable all logging. Default: `:debug`.
 
-    * `:collect_timing` - When `true`, captures per-phase timing breakdown
-      (queue, connect, send, recv, idle_time, reused_connection) from HTTP client
-      telemetry events. Phase fields in `timing` are `nil` when disabled.
-      Default: `false`.
+    * `:collect_timing` - When `true`, captures a per-phase timing breakdown
+      (`connect_us`, `send_us`, `recv_us`) measured directly around the Mint
+      transport calls. `queue_us` and `idle_time_us` are always `nil` and
+      `reused_connection?` is always `false` (no connection pool). Phase fields
+      in `timing` are `nil` when disabled. Default: `false`.
+
+    * `:block_private_networks` - When `true` (default), reject upstreams whose
+      hostname resolves to a private, loopback, link-local or otherwise internal
+      address (SSRF egress guard). See `Philter.Egress`.
+
+    * `:allowed_hosts` - Hosts that bypass the egress block check entirely (the
+      escape hatch, e.g. a deliberately internal upstream). Exact match after
+      downcase and trailing-dot strip. Default: `[]`.
+
+    * `:dns_timeout` - Milliseconds to bound upstream DNS resolution. On timeout
+      the request fails with `504`. Default: `5_000`.
 
   ## Return Value
 
@@ -196,6 +200,7 @@ defmodule Philter do
   def proxy(conn, opts) do
     validate_header_opts!(opts)
     upstream = Keyword.fetch!(opts, :upstream)
+    upstream_uri = URI.parse(upstream)
     config = Config.resolve(opts)
     handler = resolve_handler(opts)
 
@@ -238,134 +243,24 @@ defmodule Philter do
            started_at: started_at
          }) do
       {:ok, handler_state} ->
-        # Start Observer for request/response body observation
-        req_accumulate? =
-          Config.content_type_persistable?(
-            req_content_type,
-            config.persistable_content_types
-          )
-
-        {:ok, observer} =
-          Observer.start_link(
-            config: config,
-            req_accumulate?: req_accumulate?
-          )
-
-        # Build request body with observer callback
-        request_body = build_request_body(conn, observer)
-
-        # Build Finch request
-        request =
-          Finch.build(
-            method_atom(conn.method),
-            upstream_url,
-            outbound_headers,
-            request_body
-          )
-
-        # Stream request and response with plain map accumulator
-        acc = %{
+        ctx = %{
           conn: conn,
-          handler: if(handler, do: {elem(handler, 0), handler_state}, else: nil),
-          observer: observer,
-          status: nil,
+          opts: opts,
+          config: config,
+          handler: handler,
+          handler_state: handler_state,
+          upstream_url: upstream_url,
+          outbound_headers: outbound_headers,
+          req_content_type: req_content_type,
           started_at: started_at,
-          error: nil,
           log_level: log_level,
-          upstream_url: upstream_url
+          upstream: upstream,
+          upstream_uri: upstream_uri
         }
 
-        collect_timing? = Keyword.get(opts, :collect_timing, false)
-
-        {result, timing} =
-          stream_with_timing(
-            request,
-            config.finch_name,
-            acc,
-            [receive_timeout: config.receive_timeout],
-            collect_timing?
-          )
-
-        case result do
-          {:ok, acc} ->
-            observations = Observer.finalize(observer)
-            duration_us = System.monotonic_time(:microsecond) - started_at
-
-            # Log #3: Success complete
-            log(log_level, fn ->
-              [
-                "Philter complete ",
-                Integer.to_string(acc.status),
-                " ",
-                Integer.to_string(observations.response.size),
-                "B ",
-                Integer.to_string(div(duration_us, 1000)),
-                "ms"
-              ]
-            end)
-
-            handler_state = handler_state(acc)
-
-            # Notify handler of completion
-            notify_response_finished(
-              handler,
-              %{
-                request_observation: observations.request,
-                response_observation: observations.response,
-                error: nil,
-                upstream_url: upstream_url,
-                method: acc.conn.method,
-                status: acc.conn.status,
-                timing: build_timing(duration_us, timing)
-              },
-              handler_state
-            )
-
-            # Store observations in conn private
-            acc.conn
-            |> put_private(
-              :philter_request_observation,
-              observations.request
-            )
-            |> put_private(
-              :philter_response_observation,
-              observations.response
-            )
-
-          {:error, %Finch.Error{reason: reason}, acc}
-          when reason in @timeout_reasons ->
-            handle_error(acc, handler, %{
-              upstream_url: upstream_url,
-              method: conn.method,
-              started_at: started_at,
-              error: {:timeout, reason},
-              status: 504,
-              body: "Gateway Timeout",
-              timing: timing
-            })
-
-          {:error, %Mint.TransportError{reason: reason}, acc}
-          when reason in @timeout_reasons ->
-            handle_error(acc, handler, %{
-              upstream_url: upstream_url,
-              method: conn.method,
-              started_at: started_at,
-              error: {:timeout, reason},
-              status: 504,
-              body: "Gateway Timeout",
-              timing: timing
-            })
-
-          {:error, error, acc} ->
-            handle_error(acc, handler, %{
-              upstream_url: upstream_url,
-              method: conn.method,
-              started_at: started_at,
-              error: error,
-              status: 502,
-              body: "Bad Gateway",
-              timing: timing
-            })
+        case Egress.resolve_and_validate(upstream_uri.host, egress_opts(config, opts)) do
+          {:ok, addresses} -> stream_upstream(ctx, addresses)
+          {:error, reason} -> egress_reject(conn, reason, upstream_url, log_level)
         end
 
       {:reject, status, body, _handler_state} ->
@@ -582,10 +477,6 @@ defmodule Philter do
     end)
   end
 
-  defp method_atom(method) do
-    method |> String.downcase() |> String.to_existing_atom()
-  end
-
   defp handler_state(%{handler: {_, state}}), do: state
   defp handler_state(_), do: nil
 
@@ -625,24 +516,185 @@ defmodule Philter do
     acc.conn |> send_resp(info.status, info.body) |> halt()
   end
 
-  defp stream_with_timing(request, finch_name, acc, opts, collect_timing?) do
-    ref =
-      if collect_timing? do
-        Philter.Timing.ensure_attached()
-        Philter.Timing.start_capture()
-      end
+  # Egress gate: resolve + validate the upstream, then stream via the Mint
+  # transport pinned to a validated address.
 
-    try do
-      Finch.stream_while(request, finch_name, acc, &handle_stream_message/2, opts)
-    catch
-      kind, reason ->
-        if ref, do: Philter.Timing.collect(ref)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    else
-      result ->
-        timing = if ref, do: Philter.Timing.collect(ref)
-        {result, timing}
+  defp egress_opts(config, opts) do
+    base = [
+      block_private_networks: config.block_private_networks,
+      allowed_hosts: config.allowed_hosts,
+      dns_timeout: config.dns_timeout
+    ]
+
+    case Keyword.get(opts, :resolver) do
+      nil -> base
+      resolver -> Keyword.put(base, :resolver, resolver)
     end
+  end
+
+  defp egress_reject(conn, reason, upstream_url, log_level) do
+    {status, body} = egress_response(reason)
+    log_egress_rejection(reason, status, upstream_url, log_level)
+    conn |> send_resp(status, body) |> halt()
+  end
+
+  defp egress_response({:blocked, _ip}), do: {403, "Request blocked by egress policy"}
+  defp egress_response(:dns_timeout), do: {504, "Gateway Timeout"}
+  defp egress_response(:no_addresses), do: {502, "Bad Gateway"}
+
+  # The resolved IP is logged server-side only; it must never reach the client
+  # (avoids confirming internal topology).
+  defp log_egress_rejection(_reason, _status, _upstream_url, false), do: :ok
+
+  defp log_egress_rejection({:blocked, ip}, status, upstream_url, _level) do
+    Logger.error(fn ->
+      [
+        "Philter egress blocked ",
+        Integer.to_string(status),
+        " upstream=",
+        upstream_url,
+        " resolved=",
+        :inet.ntoa(ip) |> to_string()
+      ]
+    end)
+  end
+
+  defp log_egress_rejection(reason, status, upstream_url, _level) do
+    Logger.error(fn ->
+      [
+        "Philter egress error ",
+        Integer.to_string(status),
+        " ",
+        inspect(reason),
+        " upstream=",
+        upstream_url
+      ]
+    end)
+  end
+
+  defp stream_upstream(ctx, addresses) do
+    %{
+      conn: conn,
+      config: config,
+      handler: handler,
+      handler_state: handler_state,
+      upstream_url: upstream_url,
+      outbound_headers: outbound_headers,
+      started_at: started_at,
+      log_level: log_level
+    } = ctx
+
+    req_accumulate? =
+      Config.content_type_persistable?(ctx.req_content_type, config.persistable_content_types)
+
+    {:ok, observer} = Observer.start_link(config: config, req_accumulate?: req_accumulate?)
+    request_body = build_request_body(conn, observer)
+
+    # Connection identity (scheme/host/port) comes from the base upstream — the
+    # same parse that was validated — so the pinned/SNI host can never diverge
+    # from the validated one. Only the request-line target is taken from the
+    # path-appended URL.
+    identity = ctx.upstream_uri
+
+    request = %{
+      scheme: scheme_atom(identity.scheme),
+      host: identity.host,
+      addresses: addresses,
+      port: identity.port,
+      method: String.upcase(conn.method),
+      path: request_target(URI.parse(upstream_url)),
+      headers: outbound_headers,
+      body: request_body
+    }
+
+    acc = %{
+      conn: conn,
+      handler: if(handler, do: {elem(handler, 0), handler_state}, else: nil),
+      observer: observer,
+      status: nil,
+      started_at: started_at,
+      error: nil,
+      log_level: log_level,
+      upstream_url: upstream_url
+    }
+
+    {result, timing} =
+      Transport.stream_while(request, acc, &handle_stream_message/2,
+        receive_timeout: config.receive_timeout,
+        collect_timing: Keyword.get(ctx.opts, :collect_timing, false)
+      )
+
+    finish_stream(result, timing, ctx, observer)
+  end
+
+  defp finish_stream({:ok, acc}, timing, ctx, observer) do
+    %{handler: handler, upstream_url: upstream_url, started_at: started_at, log_level: log_level} =
+      ctx
+
+    observations = Observer.finalize(observer)
+    duration_us = System.monotonic_time(:microsecond) - started_at
+
+    log(log_level, fn ->
+      [
+        "Philter complete ",
+        Integer.to_string(acc.status),
+        " ",
+        Integer.to_string(observations.response.size),
+        "B ",
+        Integer.to_string(div(duration_us, 1000)),
+        "ms"
+      ]
+    end)
+
+    notify_response_finished(
+      handler,
+      %{
+        request_observation: observations.request,
+        response_observation: observations.response,
+        error: nil,
+        upstream_url: upstream_url,
+        method: acc.conn.method,
+        status: acc.conn.status,
+        timing: build_timing(duration_us, timing)
+      },
+      handler_state(acc)
+    )
+
+    acc.conn
+    |> put_private(:philter_request_observation, observations.request)
+    |> put_private(:philter_response_observation, observations.response)
+  end
+
+  defp finish_stream({:error, %Mint.TransportError{reason: reason}, acc}, timing, ctx, _observer)
+       when reason in @timeout_reasons do
+    handle_error(acc, ctx.handler, %{
+      upstream_url: ctx.upstream_url,
+      method: ctx.conn.method,
+      started_at: ctx.started_at,
+      error: {:timeout, reason},
+      status: 504,
+      body: "Gateway Timeout",
+      timing: timing
+    })
+  end
+
+  defp finish_stream({:error, error, acc}, timing, ctx, _observer) do
+    handle_error(acc, ctx.handler, %{
+      upstream_url: ctx.upstream_url,
+      method: ctx.conn.method,
+      started_at: ctx.started_at,
+      error: error,
+      status: 502,
+      body: "Bad Gateway",
+      timing: timing
+    })
+  end
+
+  defp scheme_atom("https"), do: :https
+  defp scheme_atom("http"), do: :http
+
+  defp request_target(%URI{path: path, query: query}) do
+    (path || "/") <> if query, do: "?" <> query, else: ""
   end
 
   defp build_timing(total_us, nil) do
