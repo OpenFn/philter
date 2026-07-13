@@ -48,9 +48,6 @@ defmodule Philter.MixProject do
       {:mint, "~> 1.7"},
       {:plug, "~> 1.14"},
 
-      # Retained for the test-suite Finch pool; the transport no longer uses it.
-      {:finch, "~> 0.18"},
-
       # Optional - enhanced features
       {:phoenix, "~> 1.7", optional: true},
       {:jason, "~> 1.0", optional: true},

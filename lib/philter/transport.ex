@@ -5,13 +5,15 @@ defmodule Philter.Transport do
   # Connects directly to a caller-validated IP tuple (never re-resolving the
   # hostname, which would reopen the DNS-rebinding hole) while driving TLS SNI
   # and certificate hostname verification against the original hostname via the
-  # `:hostname` option. Exposes a `Finch.stream_while/5`-shaped entry point so
-  # `Philter.proxy/2` reuses its existing reducer unchanged.
+  # `:hostname` option. Exposes a `stream_while/4` entry point that folds
+  # upstream events through the reducer `Philter.proxy/2` supplies.
   #
   # The connection is opened in active mode and driven synchronously in the
-  # calling process via a selective `receive`. During request-body streaming we
-  # drain any pending socket messages between chunks (a non-blocking `receive`
-  # with a zero timeout) so an upstream that responds early (401/413/redirect)
+  # calling process via a selective `receive` scoped to this connection's
+  # socket, so a caller owning other active sockets keeps their messages.
+  # During request-body streaming we drain any pending socket messages between
+  # chunks (a non-blocking `receive` with a zero timeout) so an upstream that
+  # responds early (401/413/redirect)
   # cannot deadlock a large upload: we always read as well as write, and stop
   # sending the moment the response has started. (A zero-timeout `recv/3` in
   # passive mode is unusable here — Mint treats its timeout as a fatal transport
@@ -33,8 +35,7 @@ defmodule Philter.Transport do
   @doc """
   Streams `request` to upstream, folding upstream events with `fun`.
 
-  Mirrors the `Finch.stream_while/5` contract: `fun` receives the same
-  `{:status, code}` / `{:headers, headers}` / `{:data, chunk}` /
+  `fun` receives `{:status, code}` / `{:headers, headers}` / `{:data, chunk}` /
   `{:trailers, headers}` messages and returns `{:cont, acc}` or `{:halt, acc}`.
 
   Returns `{result, timing}` where `result` is `{:ok, acc}` or
@@ -47,11 +48,13 @@ defmodule Philter.Transport do
         when acc: term()
   def stream_while(request, acc, fun, opts) do
     receive_timeout = Keyword.fetch!(opts, :receive_timeout)
+    connect_timeout = Keyword.get(opts, :connect_timeout, 5000)
+    transport_opts = Keyword.get(opts, :transport_opts, [])
     collect_timing? = Keyword.get(opts, :collect_timing, false)
 
     connect_start = monotonic()
 
-    case checkout(request, receive_timeout) do
+    case checkout(request, connect_timeout, transport_opts) do
       {:ok, conn} ->
         connect_us = monotonic() - connect_start
         run(conn, request, acc, fun, receive_timeout, connect_us, collect_timing?)
@@ -63,35 +66,84 @@ defmodule Philter.Transport do
 
   # Connection acquisition lives behind one function so a future Mint pool keyed
   # on {ip, sni, port} can slot in without touching the send/receive machinery.
-  defp checkout(request, connect_timeout) do
-    opts = [
+  # `connect_timeout` is one overall budget shared across every validated
+  # address: each attempt gets whatever remains, so N unresponsive addresses
+  # cost at most `connect_timeout` in total rather than that per address.
+  defp checkout(request, connect_timeout, caller_transport_opts) do
+    base_opts = [
       hostname: request.host,
       protocols: [:http1],
-      mode: :active,
-      transport_opts: [timeout: connect_timeout]
+      mode: :active
     ]
 
-    connect_in_order(request.scheme, request.addresses, request.port, opts, nil)
+    deadline = monotonic_ms() + connect_timeout
+
+    connect_in_order(
+      request.scheme,
+      request.addresses,
+      request.port,
+      base_opts,
+      caller_transport_opts,
+      deadline,
+      nil
+    )
   end
 
-  defp connect_in_order(_scheme, [], _port, _opts, last_error) do
+  defp connect_in_order(_scheme, [], _port, _base, _caller_opts, _deadline, last_error) do
     {:error, last_error || %Mint.TransportError{reason: :nxdomain}}
   end
 
-  defp connect_in_order(scheme, [address | rest], port, opts, _last) do
-    case Mint.HTTP.connect(scheme, address, port, opts) do
-      {:ok, conn} -> {:ok, conn}
-      {:error, error} -> connect_in_order(scheme, rest, port, opts, error)
+  defp connect_in_order(scheme, [address | rest], port, base, caller_opts, deadline, last_error) do
+    remaining = deadline - monotonic_ms()
+
+    if remaining <= 0 do
+      {:error, last_error || %Mint.TransportError{reason: :timeout}}
+    else
+      opts = Keyword.put(base, :transport_opts, transport_opts(scheme, caller_opts, remaining))
+
+      case Mint.HTTP.connect(scheme, address, port, opts) do
+        {:ok, conn} ->
+          {:ok, conn}
+
+        {:error, error} ->
+          connect_in_order(scheme, rest, port, base, caller_opts, deadline, error)
+      end
     end
+  end
+
+  # Merges the caller's extra transport options (private CA, client cert, …)
+  # under the remaining connect budget. TLS verification is pinned to
+  # `:verify_peer` and the hostname check (driven by the `:hostname` connect
+  # option) is left in force; a caller cannot weaken either, so any `:verify`
+  # or `:verify_fun` they supply is dropped before the peer check is enforced.
+  defp transport_opts(:https, caller_opts, timeout) do
+    caller_opts
+    |> Keyword.drop([:verify, :verify_fun])
+    |> Keyword.put(:timeout, timeout)
+    |> Keyword.put(:verify, :verify_peer)
+  end
+
+  defp transport_opts(:http, caller_opts, timeout) do
+    caller_opts
+    |> Keyword.drop([:verify, :verify_fun])
+    |> Keyword.put(:timeout, timeout)
   end
 
   # `conn` in the `after` block is the original binding, but its socket field is
   # constant across request/stream calls, so closing it closes the live socket
-  # on every exit path (success, error, halt, crash).
+  # on every exit path (success, error, halt, crash). The socket is captured up
+  # front so the `after` block can flush any of its residual messages from the
+  # caller's mailbox once the connection is closed, leaving nothing behind to
+  # surface later as a stray `handle_info`.
   defp run(conn, request, acc, fun, receive_timeout, connect_us, collect?) do
-    exchange(conn, request, acc, fun, receive_timeout, connect_us, collect?)
-  after
-    Mint.HTTP.close(conn)
+    socket = Mint.HTTP.get_socket(conn)
+
+    try do
+      exchange(conn, request, acc, fun, receive_timeout, connect_us, collect?)
+    after
+      Mint.HTTP.close(conn)
+      flush_socket(socket)
+    end
   end
 
   defp exchange(conn, request, acc, fun, receive_timeout, connect_us, collect?) do
@@ -184,19 +236,37 @@ defmodule Philter.Transport do
     end
   end
 
-  # Waits up to `timeout` for one socket message and feeds it to Mint. A zero
-  # timeout makes this a non-blocking mailbox drain (used between body chunks);
-  # the receive-phase timeout maps to a 504 upstream. Returns `:timeout` when no
-  # message arrived, `:ok` otherwise.
+  # Waits up to `timeout` for one message from OUR socket and feeds it to Mint.
+  # The receive is pinned to this connection's socket so a caller that owns
+  # other active sockets keeps their messages in its mailbox. A zero timeout
+  # makes this a non-blocking drain (used between body chunks); the receive-phase
+  # timeout maps to a 504 upstream. Returns `:timeout` when no message arrived,
+  # `:ok` otherwise.
   defp drain(conn, ref, state, fun, timeout) do
+    socket = Mint.HTTP.get_socket(conn)
+
     receive do
-      {tag, _socket, _data} = message when tag in [:tcp, :ssl, :tcp_error, :ssl_error] ->
+      {tag, ^socket, _data} = message when tag in [:tcp, :ssl, :tcp_error, :ssl_error] ->
         apply_message(conn, ref, state, fun, message)
 
-      {tag, _socket} = message when tag in [:tcp_closed, :ssl_closed] ->
+      {tag, ^socket} = message when tag in [:tcp_closed, :ssl_closed] ->
         apply_message(conn, ref, state, fun, message)
     after
       timeout -> {conn, state, :timeout}
+    end
+  end
+
+  # Discards any of our socket's messages still queued after the connection is
+  # closed. Pinned to the socket so unrelated messages are untouched.
+  defp flush_socket(socket) do
+    receive do
+      {tag, ^socket, _data} when tag in [:tcp, :ssl, :tcp_error, :ssl_error] ->
+        flush_socket(socket)
+
+      {tag, ^socket} when tag in [:tcp_closed, :ssl_closed] ->
+        flush_socket(socket)
+    after
+      0 -> :ok
     end
   end
 
@@ -285,4 +355,6 @@ defmodule Philter.Transport do
   end
 
   defp monotonic, do: System.monotonic_time(:microsecond)
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
 end

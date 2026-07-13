@@ -62,7 +62,7 @@ defmodule Philter do
   import Plug.Conn
   require Logger
 
-  alias Philter.{Config, Egress, Observer, Transport}
+  alias Philter.{Config, Egress, Observation, Observer, Transport}
 
   @timeout_reasons [:timeout, :connect_timeout, {:closed, :timeout}]
 
@@ -92,7 +92,9 @@ defmodule Philter do
           collect_timing: boolean(),
           block_private_networks: boolean(),
           allowed_hosts: [String.t()],
-          dns_timeout: pos_integer()
+          dns_timeout: pos_integer(),
+          connect_timeout: pos_integer(),
+          transport_opts: keyword()
         ]
 
   @doc """
@@ -147,9 +149,8 @@ defmodule Philter do
       When both `:strip_headers` and `:extra_headers` are used, the processing
       order is: filter hop-by-hop headers → rewrite host → strip → merge extra.
 
-    * `:finch_name` - **Deprecated and ignored.** The transport moved from Finch
-      to a Mint-direct implementation, so no Finch pool is used. Accepting it
-      keeps existing callers from crashing.
+    * `:finch_name` - **Deprecated and ignored.** The transport uses no
+      connection pool. Accepted so existing callers do not crash.
 
     * `:receive_timeout` - Response timeout in milliseconds. Default: `15_000`.
 
@@ -181,6 +182,13 @@ defmodule Philter do
 
     * `:dns_timeout` - Milliseconds to bound upstream DNS resolution. On timeout
       the request fails with `504`. Default: `5_000`.
+
+    * `:connect_timeout` - Milliseconds to bound the connection phase to a
+      validated upstream address. Default: `5_000`.
+
+    * `:transport_opts` - Extra Mint transport options merged into the
+      connection (e.g. `cacertfile:` to trust a custom CA bundle). Cannot be
+      used to disable TLS certificate verification. Default: `[]`.
 
   ## Return Value
 
@@ -221,6 +229,7 @@ defmodule Philter do
       )
 
     log_level = config.log_level
+    maybe_warn_finch_name(opts, log_level)
 
     # Log #1: Request start
     log(log_level, fn ->
@@ -258,9 +267,12 @@ defmodule Philter do
           upstream_uri: upstream_uri
         }
 
-        case Egress.resolve_and_validate(upstream_uri.host, egress_opts(config, opts)) do
-          {:ok, addresses} -> stream_upstream(ctx, addresses)
-          {:error, reason} -> egress_reject(conn, reason, upstream_url, log_level)
+        with :ok <- validate_upstream(upstream_uri),
+             {:ok, addresses} <-
+               Egress.resolve_and_validate(upstream_uri.host, egress_opts(config, opts)) do
+          stream_upstream(ctx, addresses)
+        else
+          {:error, reason} -> egress_reject(ctx, reason)
         end
 
       {:reject, status, body, _handler_state} ->
@@ -355,6 +367,18 @@ defmodule Philter do
     end
   end
 
+  defp maybe_warn_finch_name(_opts, false), do: :ok
+
+  defp maybe_warn_finch_name(opts, _log_level) do
+    if Keyword.has_key?(opts, :finch_name) or Application.get_env(:philter, :finch_name) != nil do
+      Logger.warning(
+        "Philter :finch_name is deprecated and ignored; the Mint transport uses no connection pool"
+      )
+    end
+
+    :ok
+  end
+
   defp resolve_handler(opts) do
     case Keyword.get(opts, :handler) do
       nil ->
@@ -398,12 +422,13 @@ defmodule Philter do
 
   defp extract_host(url) do
     uri = URI.parse(url)
+    host = uri.host || ""
 
     case uri.port do
-      nil -> uri.host
-      80 -> uri.host
-      443 -> uri.host
-      port -> "#{uri.host}:#{port}"
+      nil -> host
+      80 -> host
+      443 -> host
+      port -> "#{host}:#{port}"
     end
   end
 
@@ -532,15 +557,47 @@ defmodule Philter do
     end
   end
 
-  defp egress_reject(conn, reason, upstream_url, log_level) do
+  defp egress_reject(ctx, reason) do
     {status, body} = egress_response(reason)
-    log_egress_rejection(reason, status, upstream_url, log_level)
-    conn |> send_resp(status, body) |> halt()
+    log_egress_rejection(reason, status, ctx.upstream_url, ctx.log_level)
+
+    duration_us = System.monotonic_time(:microsecond) - ctx.started_at
+    observation = empty_observation()
+
+    notify_response_finished(
+      ctx.handler,
+      %{
+        request_observation: observation,
+        response_observation: observation,
+        error: reason,
+        upstream_url: ctx.upstream_url,
+        method: ctx.conn.method,
+        status: nil,
+        timing: build_timing(duration_us, nil)
+      },
+      ctx.handler_state
+    )
+
+    ctx.conn |> send_resp(status, body) |> halt()
   end
+
+  # A missing/blank host or a non-http(s) scheme can never yield a safe upstream
+  # connection, so both are refused as a gateway error before the egress gate runs.
+  defp validate_upstream(%URI{host: host}) when host in [nil, ""], do: {:error, :invalid_host}
+
+  defp validate_upstream(%URI{scheme: scheme}) when scheme not in ["http", "https"],
+    do: {:error, :unsupported_scheme}
+
+  defp validate_upstream(_uri), do: :ok
 
   defp egress_response({:blocked, _ip}), do: {403, "Request blocked by egress policy"}
   defp egress_response(:dns_timeout), do: {504, "Gateway Timeout"}
-  defp egress_response(:no_addresses), do: {502, "Bad Gateway"}
+
+  defp egress_response(reason) when reason in [:no_addresses, :invalid_host, :unsupported_scheme],
+    do: {502, "Bad Gateway"}
+
+  # Bodies are never observed on a reject, so both observations are empty.
+  defp empty_observation, do: Observation.finalize(Observation.new())
 
   # The resolved IP is logged server-side only; it must never reach the client
   # (avoids confirming internal topology).
@@ -621,6 +678,8 @@ defmodule Philter do
     {result, timing} =
       Transport.stream_while(request, acc, &handle_stream_message/2,
         receive_timeout: config.receive_timeout,
+        connect_timeout: config.connect_timeout,
+        transport_opts: config.transport_opts,
         collect_timing: Keyword.get(ctx.opts, :collect_timing, false)
       )
 

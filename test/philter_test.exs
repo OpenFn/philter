@@ -764,6 +764,38 @@ defmodule PhilterTest do
     end
   end
 
+  describe "proxy/2 transport options" do
+    test "Config.resolve surfaces connect_timeout and transport_opts" do
+      config =
+        Philter.Config.resolve(connect_timeout: 1_234, transport_opts: [cacertfile: "/ca.pem"])
+
+      assert config.connect_timeout == 1_234
+      assert config.transport_opts == [cacertfile: "/ca.pem"]
+    end
+
+    test "connect_timeout and transport_opts default sensibly" do
+      config = Philter.Config.resolve([])
+
+      assert config.connect_timeout == 5_000
+      assert config.transport_opts == []
+    end
+
+    test "proxy accepts and threads connect_timeout and transport_opts", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/opts", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/opts")
+        |> Philter.proxy(upstream: upstream, connect_timeout: 5_000, transport_opts: [])
+
+      assert conn.status == 200
+    end
+  end
+
   describe "proxy/2 timing" do
     test "without collect_timing, timing has total_us and nil phase fields", %{
       bypass: bypass,

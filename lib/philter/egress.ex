@@ -5,7 +5,7 @@ defmodule Philter.Egress do
   This module resolves a hostname to IP addresses and validates that none of
   them fall inside private, loopback, link-local or otherwise internal network
   ranges before a caller is allowed to connect. It is transport-agnostic: it
-  has no dependency on Finch/Mint or on `Philter.Config`. Policy is supplied
+  has no dependency on the transport or on `Philter.Config`. Policy is supplied
   entirely through `resolve_and_validate/2` options.
 
   ## Why resolve here?
@@ -36,9 +36,16 @@ defmodule Philter.Egress do
     * `fc00::/7` (unique local addresses)
     * `fe80::/10` (link-local)
 
-  IPv4-mapped (`::ffff:a.b.c.d`) and NAT64 (`64:ff9b::a.b.c.d`) IPv6 forms are
-  unwrapped to their embedded IPv4 address and re-checked against the IPv4
-  ranges, so a translated form of a blocked address cannot slip through.
+  IPv6 forms that embed an IPv4 address are unwrapped to that address and
+  re-checked against the IPv4 ranges, so a translated form of a blocked address
+  cannot slip through:
+
+    * IPv4-mapped (`::ffff:a.b.c.d`)
+    * IPv4-compatible (`::a.b.c.d`)
+    * NAT64 (`64:ff9b::a.b.c.d`)
+    * 6to4 (`2002::/16`, embedding the IPv4 in the second and third hextets)
+    * Teredo (`2001:0000::/32`, embedding the client IPv4, bit-inverted, in the
+      last two hextets)
   """
 
   import Bitwise
@@ -113,37 +120,49 @@ defmodule Philter.Egress do
   @doc """
   Returns `true` if `ip` falls inside a blocked (internal) range.
 
-  IPv4-mapped and NAT64 IPv6 addresses are unwrapped to their embedded IPv4
-  address before checking, so translated forms of blocked addresses are caught.
+  IPv6 forms that embed an IPv4 address (IPv4-mapped, IPv4-compatible, NAT64,
+  6to4 and Teredo) are unwrapped to that address before checking, so translated
+  forms of blocked addresses are caught.
   """
   @spec blocked?(:inet.ip_address()) :: boolean()
   def blocked?({0, 0, 0, 0, 0, 0xFFFF, g, h}), do: ipv4_blocked?(embedded_v4(g, h))
   def blocked?({0x64, 0xFF9B, 0, 0, 0, 0, g, h}), do: ipv4_blocked?(embedded_v4(g, h))
   def blocked?({0, 0, 0, 0, 0, 0, g, h}), do: ipv4_blocked?(embedded_v4(g, h))
+  def blocked?({0x2002, b, c, _, _, _, _, _}), do: ipv4_blocked?(embedded_v4(b, c))
+
+  def blocked?({0x2001, 0x0000, _, _, _, _, g, h}),
+    do: ipv4_blocked?(embedded_v4(bxor(g, 0xFFFF), bxor(h, 0xFFFF)))
+
   def blocked?({_, _, _, _, _, _, _, _} = v6), do: ipv6_blocked?(v6)
   def blocked?({_, _, _, _} = v4), do: ipv4_blocked?(v4)
 
-  # Resolution, bounded by a Task so a tarpit nameserver cannot hang the caller.
+  # Each address family is resolved in its own task under a single shared
+  # timeout budget, so a slow lookup in one family cannot sink a name whose
+  # other family has already answered. A lookup still running when the budget
+  # expires is brutally killed, so a tarpit nameserver leaves no lingering
+  # process.
 
   defp resolve(host, resolver, timeout) do
-    task = Task.async(fn -> resolve_all(host, resolver) end)
-
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, addrs}} -> {:ok, addrs}
-      {:ok, {:error, reason}} -> {:error, reason}
-      {:exit, _reason} -> {:error, :no_addresses}
-      nil -> {:error, :dns_timeout}
-    end
-  end
-
-  defp resolve_all(host, resolver) do
     charlist = String.to_charlist(host)
 
-    addrs =
-      [:inet, :inet6]
-      |> Enum.flat_map(fn family -> safe_getaddrs(resolver, charlist, family) end)
+    tasks =
+      Enum.map([:inet, :inet6], fn family ->
+        Task.async(fn -> safe_getaddrs(resolver, charlist, family) end)
+      end)
+
+    {addrs, timed_out?} =
+      tasks
+      |> Task.yield_many(timeout)
+      |> Enum.reduce({[], false}, fn {task, outcome}, {acc, timed_out?} ->
+        case outcome || Task.shutdown(task, :brutal_kill) do
+          {:ok, list} -> {acc ++ list, timed_out?}
+          nil -> {acc, true}
+          {:exit, _reason} -> {acc, timed_out?}
+        end
+      end)
 
     case addrs do
+      [] when timed_out? -> {:error, :dns_timeout}
       [] -> {:error, :no_addresses}
       list -> {:ok, list}
     end

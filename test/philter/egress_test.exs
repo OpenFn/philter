@@ -119,6 +119,47 @@ defmodule Philter.EgressTest do
     end
   end
 
+  describe "blocked?/1 unwraps 6to4 (2002::/16)" do
+    # 6to4 embeds the IPv4 address in the second and third hextets, so
+    # 2002:AABB:CCDD:: carries AA.BB.CC.DD. An internal target tunnelled this
+    # way must be unwrapped and re-checked. Each row: {ip, expected, description}.
+    @sixtofour_cases [
+      {{0x2002, 0xA9FE, 0xA9FE, 0, 0, 0, 0, 0}, true, "2002::169.254.169.254 IMDS"},
+      {{0x2002, 0x0A00, 0x0001, 0, 0, 0, 0, 0}, true, "2002::10.0.0.1 RFC1918"},
+      {{0x2002, 0x7F00, 0x0001, 0, 0, 0, 0, 0}, true, "2002::127.0.0.1 loopback"},
+      # Public embedded address must still be allowed (proves we didn't over-block).
+      {{0x2002, 0x0808, 0x0808, 0, 0, 0, 0, 0}, false, "2002::8.8.8.8 public"}
+    ]
+
+    for {ip, expected, description} <- @sixtofour_cases do
+      test "#{description}: blocked? == #{expected}" do
+        assert Egress.blocked?(unquote(Macro.escape(ip))) == unquote(expected)
+      end
+    end
+  end
+
+  describe "blocked?/1 unwraps Teredo (2001:0000::/32)" do
+    # Teredo embeds the client IPv4 in the last two hextets, bit-inverted (each
+    # hextet XORed with 0xFFFF). Only 2001:0000::/32 is Teredo; other 2001::
+    # allocations are ordinary public space. Each row: {ip, expected, description}.
+    @teredo_cases [
+      # 169.254.169.254 -> a9fe a9fe -> inverted 5601 5601
+      {{0x2001, 0x0000, 0, 0, 0, 0, 0x5601, 0x5601}, true, "Teredo IMDS 169.254.169.254"},
+      # 10.0.0.1 -> 0a00 0001 -> inverted f5ff fffe
+      {{0x2001, 0x0000, 0, 0, 0, 0, 0xF5FF, 0xFFFE}, true, "Teredo 10.0.0.1 RFC1918"},
+      # 8.8.8.8 -> 0808 0808 -> inverted f7f7 f7f7 (public, must stay allowed)
+      {{0x2001, 0x0000, 0, 0, 0, 0, 0xF7F7, 0xF7F7}, false, "Teredo 8.8.8.8 public"},
+      # A public 2001:: allocation must not be mistaken for Teredo.
+      {{0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888}, false, "2001:4860:: public Google v6"}
+    ]
+
+    for {ip, expected, description} <- @teredo_cases do
+      test "#{description}: blocked? == #{expected}" do
+        assert Egress.blocked?(unquote(Macro.escape(ip))) == unquote(expected)
+      end
+    end
+  end
+
   describe "resolve_and_validate/2 with an injected resolver" do
     defp resolver_returning(family_map) do
       fn _host, family -> Map.get(family_map, family, {:error, :nxdomain}) end
@@ -230,6 +271,42 @@ defmodule Philter.EgressTest do
 
       assert result == {:error, :dns_timeout}
       # Returns well before the resolver's 5s sleep would elapse.
+      assert elapsed_us < 1_000_000
+    end
+  end
+
+  describe "resolve_and_validate/2 resolves address families concurrently" do
+    test "a hung inet6 lookup does not sink an inet answer already returned" do
+      resolver = fn
+        _host, :inet -> {:ok, [{93, 184, 216, 34}]}
+        _host, :inet6 -> Process.sleep(5_000)
+      end
+
+      {elapsed_us, result} =
+        :timer.tc(fn ->
+          Egress.resolve_and_validate("dual.example",
+            resolver: resolver,
+            dns_timeout: 100
+          )
+        end)
+
+      assert result == {:ok, [{93, 184, 216, 34}]}
+      # The inet answer is not held hostage by the inet6 lookup's 5s sleep.
+      assert elapsed_us < 1_000_000
+    end
+
+    test "both families hanging still yields :dns_timeout" do
+      resolver = fn _host, _family -> Process.sleep(5_000) end
+
+      {elapsed_us, result} =
+        :timer.tc(fn ->
+          Egress.resolve_and_validate("slow.example",
+            resolver: resolver,
+            dns_timeout: 100
+          )
+        end)
+
+      assert result == {:error, :dns_timeout}
       assert elapsed_us < 1_000_000
     end
   end

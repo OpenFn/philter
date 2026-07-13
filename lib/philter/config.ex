@@ -23,9 +23,9 @@ defmodule Philter.Config do
 
   ## Options
 
-  - `:finch_name` - **Deprecated.** No longer used since the transport moved from
-    Finch to a Mint-direct implementation. Still accepted (and ignored) so
-    existing configuration does not crash (default: `Philter.Finch`)
+  - `:finch_name` - **Deprecated and ignored.** The transport uses no connection
+    pool. Still accepted so existing configuration does not crash (default:
+    `Philter.Finch`)
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
@@ -35,6 +35,11 @@ defmodule Philter.Config do
   - `:allowed_hosts` - Hosts that bypass the egress block check entirely. Exact
     match after downcase + trailing-dot strip (default: `[]`)
   - `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: 5_000)
+  - `:connect_timeout` - Milliseconds to bound the connection phase to a validated
+    upstream address (default: 5_000)
+  - `:transport_opts` - Extra Mint transport options merged into the connection,
+    e.g. a custom CA bundle. Cannot be used to disable TLS certificate verification
+    (default: `[]`)
 
   ## Default Persistable Content Types
 
@@ -56,6 +61,8 @@ defmodule Philter.Config do
   @default_block_private_networks true
   @default_allowed_hosts []
   @default_dns_timeout 5_000
+  @default_connect_timeout 5_000
+  @default_transport_opts []
   @default_persistable_content_types [
     "application/json",
     "application/xml",
@@ -72,11 +79,13 @@ defmodule Philter.Config do
           log_level: Logger.level() | false,
           block_private_networks: boolean(),
           allowed_hosts: [String.t()],
-          dns_timeout: pos_integer()
+          dns_timeout: pos_integer(),
+          connect_timeout: pos_integer(),
+          transport_opts: keyword()
         }
 
   @doc """
-  Returns the configured Finch pool name.
+  Returns the configured `:finch_name`. Deprecated and ignored.
 
   ## Examples
 
@@ -239,6 +248,46 @@ defmodule Philter.Config do
   end
 
   @doc """
+  Returns the connection-phase timeout in milliseconds.
+
+  ## Examples
+
+      iex> Philter.Config.connect_timeout()
+      5_000
+
+      iex> Philter.Config.connect_timeout(connect_timeout: 1_000)
+      1_000
+
+  """
+  @spec connect_timeout(keyword()) :: pos_integer()
+  def connect_timeout(opts \\ []) do
+    Keyword.get_lazy(opts, :connect_timeout, fn ->
+      Application.get_env(:philter, :connect_timeout, @default_connect_timeout)
+    end)
+  end
+
+  @doc """
+  Returns extra Mint transport options merged into the connection.
+
+  Cannot be used to disable TLS certificate verification.
+
+  ## Examples
+
+      iex> Philter.Config.transport_opts()
+      []
+
+      iex> Philter.Config.transport_opts(transport_opts: [cacertfile: "/etc/ssl/cert.pem"])
+      [cacertfile: "/etc/ssl/cert.pem"]
+
+  """
+  @spec transport_opts(keyword()) :: keyword()
+  def transport_opts(opts \\ []) do
+    Keyword.get_lazy(opts, :transport_opts, fn ->
+      Application.get_env(:philter, :transport_opts, @default_transport_opts)
+    end)
+  end
+
+  @doc """
   Returns all configuration as a map, with per-request overrides applied.
 
   Useful for getting the full resolved config in one call.
@@ -260,7 +309,9 @@ defmodule Philter.Config do
       log_level: log_level(opts),
       block_private_networks: block_private_networks(opts),
       allowed_hosts: allowed_hosts(opts),
-      dns_timeout: dns_timeout(opts)
+      dns_timeout: dns_timeout(opts),
+      connect_timeout: connect_timeout(opts),
+      transport_opts: transport_opts(opts)
     }
   end
 

@@ -163,8 +163,8 @@ defmodule Philter.EgressIntegrationTest do
     end
   end
 
-  describe "no observer is started and no finished-callback fires on a block" do
-    test "handle_response_finished is not called and no observation is stored" do
+  describe "an egress block still fires the finished callback" do
+    test "handle_response_finished runs with the block reason and empty observations" do
       {handler, get_events} = Philter.TestHelpers.test_handler()
       resolver = static_resolver(%{inet: {:ok, [{169, 254, 169, 254}]}})
 
@@ -182,10 +182,67 @@ defmodule Philter.EgressIntegrationTest do
       events = get_events.()
       # The request-started seam runs before the gate, so it fires...
       assert Enum.any?(events, &match?({:request_started, _}, &1))
-      # ...but the block is reject-style: no response_finished, no observations.
-      refute Enum.any?(events, &match?({:response_finished, _}, &1))
+
+      # ...and the finished seam fires too, so a handler that acquired something
+      # in handle_request_started can release it. The block reason is surfaced as
+      # the error, with no upstream status.
+      {:response_finished, result} = Enum.find(events, &match?({:response_finished, _}, &1))
+      assert result.error == {:blocked, {169, 254, 169, 254}}
+      assert result.status == nil
+      # No body is ever streamed on a block, so both observations are empty.
+      assert result.request_observation.size == 0
+      assert result.response_observation.size == 0
+
+      # Observations are not stored on the conn for a blocked request.
       assert conn.private[:philter_response_observation] == nil
       assert conn.private[:philter_request_observation] == nil
+    end
+  end
+
+  describe "an invalid upstream is a clean gateway error, not a crash" do
+    test "an upstream with an empty host returns 502" do
+      conn =
+        conn(:get, "/")
+        |> Philter.proxy(upstream: "http://")
+
+      assert conn.status == 502
+      assert conn.halted
+    end
+
+    test "a scheme-less upstream with a nil host returns 502 without crashing" do
+      # "localhost:4000" parses to a nil host; the request-start log runs before
+      # the upstream is validated, so this also guards that path against a crash.
+      conn =
+        conn(:get, "/")
+        |> Philter.proxy(upstream: "localhost:4000")
+
+      assert conn.status == 502
+      assert conn.halted
+    end
+
+    test "an unsupported scheme returns 502 without dialling" do
+      conn =
+        conn(:get, "/")
+        |> Philter.proxy(upstream: "ftp://public.example.com")
+
+      assert conn.status == 502
+      assert conn.halted
+    end
+
+    test "the finished callback fires on an invalid upstream" do
+      {handler, get_events} = Philter.TestHelpers.test_handler()
+
+      conn =
+        conn(:get, "/")
+        |> Philter.proxy(upstream: "ftp://public.example.com", handler: {handler, %{}})
+
+      assert conn.status == 502
+
+      {:response_finished, result} =
+        Enum.find(get_events.(), &match?({:response_finished, _}, &1))
+
+      assert result.error == :unsupported_scheme
+      assert result.status == nil
     end
   end
 

@@ -39,7 +39,7 @@ defmodule Philter.ProxyPlug do
       addresses, an SSRF egress guard (default: `true`). See `Philter.Egress`.
     * `:allowed_hosts` - Hosts that bypass the egress block check (default: `[]`).
     * `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: `5_000`).
-    * `:finch_name` - **Deprecated and ignored.** The transport no longer uses Finch.
+    * `:finch_name` - **Deprecated and ignored.** The transport uses no connection pool.
 
   See `Philter.Config` for global defaults and application configuration.
 
