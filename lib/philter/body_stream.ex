@@ -1,16 +1,16 @@
 defmodule Philter.BodyStream do
   @moduledoc false
-  # Internal module: Adapts Plug.Conn request body to Finch stream format.
+  # Internal module: adapts a Plug.Conn request body into a streamable enumerable.
   #
   # Reads the request body via Plug.Conn.read_body/2 and wraps it as
-  # `{:stream, enumerable}` for Finch. Supports an `:on_chunk` callback
-  # for observation (hash/size capture) during streaming.
+  # `{:stream, enumerable}`. Supports an `:on_chunk` callback for observation
+  # (hash/size capture) during streaming.
 
   # Read 64KB chunks
   @chunk_size 64_000
 
   @doc """
-  Creates `{:stream, enumerable}` from a Plug.Conn for Finch.
+  Creates `{:stream, enumerable}` from a Plug.Conn.
 
   Options:
   - `:on_chunk` - callback for each chunk (default: no-op)

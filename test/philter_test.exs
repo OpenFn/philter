@@ -764,6 +764,38 @@ defmodule PhilterTest do
     end
   end
 
+  describe "proxy/2 transport options" do
+    test "Config.resolve surfaces connect_timeout and transport_opts" do
+      config =
+        Philter.Config.resolve(connect_timeout: 1_234, transport_opts: [cacertfile: "/ca.pem"])
+
+      assert config.connect_timeout == 1_234
+      assert config.transport_opts == [cacertfile: "/ca.pem"]
+    end
+
+    test "connect_timeout and transport_opts default sensibly" do
+      config = Philter.Config.resolve([])
+
+      assert config.connect_timeout == 5_000
+      assert config.transport_opts == []
+    end
+
+    test "proxy accepts and threads connect_timeout and transport_opts", %{
+      bypass: bypass,
+      upstream: upstream
+    } do
+      Bypass.expect(bypass, "GET", "/opts", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      conn =
+        conn(:get, "/opts")
+        |> Philter.proxy(upstream: upstream, connect_timeout: 5_000, transport_opts: [])
+
+      assert conn.status == 200
+    end
+  end
+
   describe "proxy/2 timing" do
     test "without collect_timing, timing has total_us and nil phase fields", %{
       bypass: bypass,
@@ -822,13 +854,15 @@ defmodule PhilterTest do
       timing = result.timing
 
       assert is_integer(timing.total_us) and timing.total_us > 0
-      assert is_integer(timing.queue_us) and timing.queue_us >= 0
+      assert is_integer(timing.connect_us) and timing.connect_us >= 0
       assert is_integer(timing.send_us) and timing.send_us >= 0
       assert is_integer(timing.recv_us) and timing.recv_us >= 0
-      assert is_boolean(timing.reused_connection?)
 
-      assert timing.idle_time_us == nil or
-               (is_integer(timing.idle_time_us) and timing.idle_time_us >= 0)
+      # No connection pool under the Mint transport: queue/idle are always nil
+      # and connections are never reused.
+      assert timing.queue_us == nil
+      assert timing.idle_time_us == nil
+      assert timing.reused_connection? == false
     end
 
     test "error paths still get timing", %{upstream: _upstream} do

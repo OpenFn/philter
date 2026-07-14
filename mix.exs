@@ -1,7 +1,7 @@
 defmodule Philter.MixProject do
   use Mix.Project
 
-  @version "0.3.0"
+  @version "0.4.0"
   @source_url "https://github.com/OpenFn/philter"
 
   def project do
@@ -37,7 +37,7 @@ defmodule Philter.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :crypto]
+      extra_applications: [:logger, :crypto, :ssl, :public_key]
       # Note: NO mod: key - library doesn't auto-start supervision
     ]
   end
@@ -45,7 +45,7 @@ defmodule Philter.MixProject do
   defp deps do
     [
       # Required - core functionality
-      {:finch, "~> 0.18"},
+      {:mint, "~> 1.9"},
       {:plug, "~> 1.14"},
 
       # Optional - enhanced features
@@ -58,7 +58,8 @@ defmodule Philter.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
 
       # Test only
-      {:bypass, "~> 2.1", only: :test}
+      {:bypass, "~> 2.1", only: :test},
+      {:x509, "~> 0.8", only: :test}
     ]
   end
 
@@ -99,7 +100,8 @@ defmodule Philter.MixProject do
     [
       plt_add_apps: [:mix],
       plt_core_path: "priv/plts",
-      plt_local_path: "priv/plts"
+      plt_local_path: "priv/plts",
+      ignore_warnings: ".dialyzer_ignore.exs"
     ]
   end
 

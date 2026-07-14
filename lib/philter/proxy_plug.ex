@@ -10,17 +10,24 @@ defmodule Philter.ProxyPlug do
       defmodule MyAppWeb.Router do
         use MyAppWeb, :router
 
-        forward "/api/v1", Philter.ProxyPlug, upstream: "http://api.internal:4000"
+        forward "/api/v1", Philter.ProxyPlug,
+          upstream: "http://api.internal:4000",
+          allowed_hosts: ["api.internal"]
+
         forward "/legacy", Philter.ProxyPlug,
           upstream: "http://legacy.example.com",
           receive_timeout: 30_000
       end
 
+  The `/api/v1` example targets an internal host, so it must be allowlisted via
+  `:allowed_hosts` — by default Philter rejects upstreams that resolve to
+  private or otherwise internal addresses. See `Philter.proxy/2` and
+  `Philter.Egress` for the SSRF egress policy.
+
   ## Options
 
     * `:upstream` - Base URL of upstream server (required)
     * `:handler` - Handler module or `{module, state}` tuple (optional)
-    * `:finch_name` - Finch pool name (default: `Philter.Finch`)
     * `:receive_timeout` - Response timeout in ms (default: `15_000`)
     * `:max_payload_size` - Max body size for accumulation (default: `1_048_576`)
     * `:persistable_content_types` - Content types to accumulate (default: JSON, XML, text)
@@ -28,6 +35,11 @@ defmodule Philter.ProxyPlug do
       existing header with the same name. Cannot be combined with `:headers`.
     * `:strip_headers` - List of header names to remove from the outbound request.
       Cannot be combined with `:headers`.
+    * `:block_private_networks` - Reject upstreams resolving to private/internal
+      addresses, an SSRF egress guard (default: `true`). See `Philter.Egress`.
+    * `:allowed_hosts` - Hosts that bypass the egress block check (default: `[]`).
+    * `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: `5_000`).
+    * `:finch_name` - **Deprecated and ignored.** The transport uses no connection pool.
 
   See `Philter.Config` for global defaults and application configuration.
 

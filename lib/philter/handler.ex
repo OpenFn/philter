@@ -76,9 +76,9 @@ defmodule Philter.Handler do
   @typedoc """
   Per-phase timing breakdown for a proxy request.
 
-  When `collect_timing: true` is set, phase fields are populated from HTTP
-  client telemetry. When timing capture is off, phase fields are `nil` and
-  `reused_connection?` is `nil`.
+  When `collect_timing: true` is set, phase fields are measured directly around
+  the Mint transport calls. When timing capture is off, phase fields are `nil`
+  and `reused_connection?` is `nil`.
   """
   @type timing :: %{
           required(:total_us) => non_neg_integer(),

@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-13
+
+### Security
+- **Fix SSRF via egress filtering ([GHSA-4325-m2h3-7rwf](https://github.com/OpenFn/philter/security/advisories/GHSA-4325-m2h3-7rwf)).** Philter previously connected to any caller-supplied `:upstream` with no egress validation, allowing requests to loopback, RFC1918, link-local and cloud metadata (169.254.169.254 / IMDS) addresses, and was vulnerable to DNS rebinding. Deny-by-default egress filtering (`block_private_networks: true`) now rejects upstreams that resolve to private, loopback, link-local, CGNAT or otherwise internal ranges (IPv4 `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`, `240.0.0.0/4`; IPv6 `::`, `::1`, `fc00::/7`, `fe80::/10`, plus IPv4-mapped, IPv4-compatible and NAT64 forms unwrapped to their embedded IPv4 and re-checked). Blocking is on the resolved address tuples, not the URL literal, so octal/hex/decimal IP-encoding tricks are moot. A blocked address returns `403` with a static body; the resolved IP is logged server-side only, never returned to the client.
+- **Require Mint `~> 1.9`** (was `~> 1.7`). Mint 1.9.1 is the lowest release clearing five 2026 advisories relevant to proxying: CRLF injection via an unvalidated HTTP method, HTTP response smuggling via lenient Content-Length parsing, unbounded buffering of chunked response bodies, HTTP/2 CONTINUATION flooding, and stream exhaustion via unenforced PUSH_PROMISE limits.
+
+### Changed
+- **Breaking**: Replaced the Finch transport with a Mint-direct "resolve-and-pin" transport (`Philter.Transport`). It resolves the upstream host once, validates every A/AAAA answer against the egress policy, and connects the socket to a validated IP tuple without ever re-resolving, while preserving the original hostname for the Host header, TLS SNI and certificate verification. This closes DNS rebinding. Host applications no longer need to supervise a Finch pool for Philter.
+- The transport is raw HTTP/1 with no connection pooling, so every request opens a fresh connection.
+
+### Added
+- `Philter.Egress` module — resolves a hostname and validates the resolved addresses against the SSRF egress policy. Transport-agnostic; policy is supplied per call.
+- `:block_private_networks` option (default `true`) — deny-by-default egress filtering for `proxy/2` and `ProxyPlug`.
+- `:allowed_hosts` option (default `[]`) — opt-in escape hatch listing host strings that bypass the egress check, matched case-insensitively ignoring a trailing dot, for deliberately reaching internal hosts.
+- `:dns_timeout` option (default `5_000` ms) — bounds upstream DNS resolution; on timeout the request is rejected with `504`. An unresolvable host returns `502`.
+
+### Deprecated
+- `:finch_name` option is deprecated and ignored — the transport no longer uses Finch, so host apps no longer need to supervise a Finch pool for Philter. Accepting it keeps existing callers from crashing.
+
 ## [0.3.0] - 2026-04-09
 
 ### Changed
