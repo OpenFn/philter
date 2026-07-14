@@ -18,6 +18,11 @@ defmodule Philter.Transport do
   # sending the moment the response has started. (A zero-timeout `recv/3` in
   # passive mode is unusable here — Mint treats its timeout as a fatal transport
   # error and closes the socket.)
+  #
+  # Mint 1.8+ types its connection as an open union of opaque HTTP1/HTTP2
+  # structs, so Dialyzer reads every hand-off back to Mint's API here as an
+  # opaque-term violation and cascades no-return warnings through the module.
+  # Those spurious warnings are filtered in .dialyzer_ignore.exs.
 
   @type request :: %{
           scheme: :http | :https,

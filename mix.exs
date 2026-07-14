@@ -45,7 +45,7 @@ defmodule Philter.MixProject do
   defp deps do
     [
       # Required - core functionality
-      {:mint, "~> 1.7"},
+      {:mint, "~> 1.9"},
       {:plug, "~> 1.14"},
 
       # Optional - enhanced features
@@ -100,7 +100,8 @@ defmodule Philter.MixProject do
     [
       plt_add_apps: [:mix],
       plt_core_path: "priv/plts",
-      plt_local_path: "priv/plts"
+      plt_local_path: "priv/plts",
+      ignore_warnings: ".dialyzer_ignore.exs"
     ]
   end
 
