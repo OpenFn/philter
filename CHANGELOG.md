@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-07-13
+## [0.4.0] - 2026-07-14
 
 ### Security
 - **Fix SSRF via egress filtering ([GHSA-4325-m2h3-7rwf](https://github.com/OpenFn/philter/security/advisories/GHSA-4325-m2h3-7rwf)).** Philter previously connected to any caller-supplied `:upstream` with no egress validation, allowing requests to loopback, RFC1918, link-local and cloud metadata (169.254.169.254 / IMDS) addresses, and was vulnerable to DNS rebinding. Deny-by-default egress filtering (`block_private_networks: true`) now rejects upstreams that resolve to private, loopback, link-local, CGNAT or otherwise internal ranges (IPv4 `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.168.0.0/16`, `240.0.0.0/4`; IPv6 `::`, `::1`, `fc00::/7`, `fe80::/10`, plus IPv4-mapped, IPv4-compatible and NAT64 forms unwrapped to their embedded IPv4 and re-checked). Blocking is on the resolved address tuples, not the URL literal, so octal/hex/decimal IP-encoding tricks are moot. A blocked address returns `403` with a static body; the resolved IP is logged server-side only, never returned to the client.
