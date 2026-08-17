@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Dropped the optional `:phoenix` dependency. No code referenced it — Philter builds on Plug, and Phoenix routers and controllers accept plain Plugs, so Phoenix applications can use `Philter.ProxyPlug` unchanged.
+
 ## [0.4.0] - 2026-07-14
 
 ### Security

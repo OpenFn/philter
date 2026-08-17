@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Philter is a streaming HTTP proxy library for Elixir with O(1) memory body observation. It forwards HTTP requests to upstream servers while capturing body observations (SHA256 hash, size, timing, preview) without buffering the full body in memory.
 
-Core deps: `mint ~> 1.9`, `plug ~> 1.14`. Optional: `phoenix ~> 1.7`, `jason ~> 1.0`. Test: `bypass ~> 2.1`.
+Core deps: `mint ~> 1.9`, `plug ~> 1.14`. Optional: `jason ~> 1.0`. Test: `bypass ~> 2.1`.
+
+Philter depends on Plug, not Phoenix. Phoenix routers and controllers accept plain Plugs, so Phoenix apps can use `Philter.ProxyPlug` without Philter knowing Phoenix exists.
 
 ## Commands
 

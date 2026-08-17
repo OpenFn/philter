@@ -28,7 +28,7 @@ defmodule Philter.MixProject do
       dialyzer: dialyzer(),
 
       # Xref - exclude optional deps
-      xref: [exclude: [Phoenix.Controller, Phoenix.ConnTest, Jason]]
+      xref: [exclude: [Jason]]
     ]
   end
 
@@ -49,7 +49,6 @@ defmodule Philter.MixProject do
       {:plug, "~> 1.14"},
 
       # Optional - enhanced features
-      {:phoenix, "~> 1.7", optional: true},
       {:jason, "~> 1.0", optional: true},
 
       # Development only
