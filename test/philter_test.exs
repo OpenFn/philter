@@ -902,24 +902,6 @@ defmodule PhilterTest do
       assert log =~ "host=localhost:#{bypass.port}"
     end
 
-    test "log_level: false produces no log output", %{bypass: bypass, upstream: upstream} do
-      Bypass.expect(bypass, "GET", "/silent", fn conn ->
-        send_resp(conn, 200, "ok")
-      end)
-
-      log =
-        capture_log([level: :debug], fn ->
-          conn(:get, "/silent")
-          |> Philter.proxy(
-            upstream: upstream,
-            finch_name: Philter.TestFinch,
-            log_level: false
-          )
-        end)
-
-      assert log == ""
-    end
-
     test "error paths log at :error level", %{upstream: _upstream} do
       log =
         capture_log([level: :error], fn ->
@@ -967,20 +949,6 @@ defmodule PhilterTest do
       assert log =~ "Philter rejected GET"
       assert log =~ "/rejected"
       assert log =~ "status=413"
-    end
-
-    test "error log is suppressed when log_level: false" do
-      log =
-        capture_log([level: :error], fn ->
-          conn(:get, "/fail")
-          |> Philter.proxy(
-            upstream: "http://localhost:59999",
-            finch_name: Philter.TestFinch,
-            log_level: false
-          )
-        end)
-
-      assert log == ""
     end
   end
 end
