@@ -103,8 +103,7 @@ defmodule Philter.MixProject do
     [
       plt_add_apps: [:mix, :ex_unit],
       plt_core_path: "priv/plts",
-      plt_local_path: "priv/plts",
-      ignore_warnings: ".dialyzer_ignore.exs"
+      plt_local_path: "priv/plts"
     ]
   end
 
