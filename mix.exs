@@ -27,9 +27,13 @@ defmodule Philter.MixProject do
       # Dialyzer
       dialyzer: dialyzer(),
 
-      # Xref - exclude optional deps
-      xref: [exclude: [Jason]]
+      # Optional deps are absent unless the host app pulls them in
+      elixirc_options: [no_warn_undefined: [Jason]]
     ]
+  end
+
+  def cli do
+    [preferred_envs: [ci: :test]]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
@@ -97,7 +101,7 @@ defmodule Philter.MixProject do
 
   defp dialyzer do
     [
-      plt_add_apps: [:mix],
+      plt_add_apps: [:mix, :ex_unit],
       plt_core_path: "priv/plts",
       plt_local_path: "priv/plts",
       ignore_warnings: ".dialyzer_ignore.exs"
