@@ -12,11 +12,7 @@ defmodule Philter.EgressIntegrationTest do
   addresses through the injected `:resolver` seam, so no real DNS or live
   internal host is needed.
   """
-  # async: false — these tests deliberately exercise error paths (egress blocks,
-  # transport failures) that emit :error-level logs. ExUnit's capture_log is
-  # effectively global, so running concurrently would leak those logs into other
-  # modules' log-capture assertions. Running in isolation prevents that bleed.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   import ExUnit.CaptureLog
   import Plug.Test

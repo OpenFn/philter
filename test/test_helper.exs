@@ -1,7 +1,5 @@
 ExUnit.start()
 
-Application.put_env(:philter, :finch_name, Philter.TestFinch)
-
 # The SSRF egress guard is on by default and blocks loopback. Bypass binds to
 # 127.0.0.1 (reached via the "localhost" upstream URL), so allow-list both here
 # in one place: existing proxy tests still exercise the guard, taking the

@@ -1,6 +1,7 @@
 defmodule PhilterTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
+  import Philter.LogCapture
   import Plug.Test
   import Plug.Conn
 
@@ -69,7 +70,7 @@ defmodule PhilterTest do
 
       conn =
         conn(:get, "/test")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        |> Philter.proxy(upstream: upstream)
 
       assert conn.status == 200
       assert conn.resp_body =~ "status"
@@ -100,7 +101,6 @@ defmodule PhilterTest do
         |> put_req_header("content-length", "#{byte_size(request_body)}")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           persistable_content_types: ["application/json"]
         )
 
@@ -134,7 +134,6 @@ defmodule PhilterTest do
         |> put_req_header("content-length", "#{byte_size(binary_body)}")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           persistable_content_types: ["application/json", "text/*"]
         )
 
@@ -170,7 +169,6 @@ defmodule PhilterTest do
         conn(:get, "/large")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           max_payload_size: 1000,
           persistable_content_types: ["application/json"]
         )
@@ -199,7 +197,6 @@ defmodule PhilterTest do
         conn(:get, "/observed")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -236,7 +233,6 @@ defmodule PhilterTest do
         |> put_req_header("x-should-not-appear", "ignored")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           headers: [
             {"authorization", "Bearer test"},
             {"content-type", "application/json"}
@@ -262,7 +258,7 @@ defmodule PhilterTest do
         conn(:get, "/headers")
         |> put_req_header("x-custom", "value")
         |> put_req_header("connection", "keep-alive")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        |> Philter.proxy(upstream: upstream)
 
       assert conn.status == 200
     end
@@ -277,7 +273,7 @@ defmodule PhilterTest do
       conn =
         conn(:get, "/host-check")
         |> Map.put(:host, "original-host.example.com")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        |> Philter.proxy(upstream: upstream)
 
       assert conn.status == 200
     end
@@ -297,7 +293,6 @@ defmodule PhilterTest do
         conn(:get, "/host-check")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           headers: [
             {"host", "custom-host.example.com"},
             {"authorization", "Bearer tok"}
@@ -322,7 +317,6 @@ defmodule PhilterTest do
         conn(:get, "/host-check")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           headers: [
             {"Host", "custom-host.example.com"},
             {"authorization", "Bearer tok"}
@@ -347,7 +341,6 @@ defmodule PhilterTest do
         conn(:get, "/host-check")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           headers: [
             {"authorization", "Bearer tok"}
           ]
@@ -370,7 +363,6 @@ defmodule PhilterTest do
         conn(:get, "/meta")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}},
           headers: custom_headers
         )
@@ -389,7 +381,6 @@ defmodule PhilterTest do
         conn(:get, "/test")
         |> Philter.proxy(
           upstream: "http://localhost:59999",
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -408,7 +399,6 @@ defmodule PhilterTest do
         conn(:get, "/test")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {RejectingHandler, %{}}
         )
 
@@ -423,7 +413,6 @@ defmodule PhilterTest do
         conn(:get, "/test")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TrackingRejectHandler, %{test_pid: self()}}
         )
 
@@ -449,7 +438,6 @@ defmodule PhilterTest do
         conn(:get, "/ttfb")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -470,7 +458,7 @@ defmodule PhilterTest do
 
       conn =
         conn(:get, "/channels/some-id/api/v2")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch, path: "/api/v2")
+        |> Philter.proxy(upstream: upstream, path: "/api/v2")
 
       assert conn.status == 200
       assert conn.resp_body =~ "ok"
@@ -485,7 +473,6 @@ defmodule PhilterTest do
         conn(:get, "/original")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           path: fn conn -> "/prefix" <> conn.request_path end
         )
 
@@ -500,7 +487,7 @@ defmodule PhilterTest do
 
       conn =
         conn(:get, "/original?foo=bar")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch, path: "/override")
+        |> Philter.proxy(upstream: upstream, path: "/override")
 
       assert conn.status == 200
     end
@@ -515,7 +502,7 @@ defmodule PhilterTest do
 
       conn =
         conn(:get, "/default-path")
-        |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        |> Philter.proxy(upstream: upstream)
 
       assert conn.status == 200
     end
@@ -535,7 +522,6 @@ defmodule PhilterTest do
         |> put_req_header("x-custom", "keep-me")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           strip_headers: ["authorization"]
         )
 
@@ -553,7 +539,6 @@ defmodule PhilterTest do
         |> put_req_header("authorization", "Bearer secret")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           strip_headers: ["Authorization"]
         )
 
@@ -574,7 +559,6 @@ defmodule PhilterTest do
         |> put_req_header("x-custom", "present")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           strip_headers: ["x-nonexistent"]
         )
 
@@ -596,7 +580,6 @@ defmodule PhilterTest do
         |> put_req_header("x-custom", "original")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           extra_headers: [{"x-forwarded-for", "1.2.3.4"}]
         )
 
@@ -617,7 +600,6 @@ defmodule PhilterTest do
         |> put_req_header("x-custom", "original")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           extra_headers: [{"x-custom", "replaced"}]
         )
 
@@ -637,7 +619,6 @@ defmodule PhilterTest do
         conn(:get, "/extra-hop")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           extra_headers: [{"connection", "keep-alive"}]
         )
 
@@ -657,7 +638,6 @@ defmodule PhilterTest do
         |> put_req_header("authorization", "Bearer user-token")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           strip_headers: ["authorization"],
           extra_headers: [{"authorization", "Bearer service-token"}]
         )
@@ -682,7 +662,6 @@ defmodule PhilterTest do
         |> put_req_header("x-custom", "keep-me")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           strip_headers: ["authorization", "cookie"],
           extra_headers: [{"x-forwarded-for", "1.2.3.4"}, {"x-request-id", "abc123"}]
         )
@@ -699,7 +678,6 @@ defmodule PhilterTest do
                      conn(:get, "/test")
                      |> Philter.proxy(
                        upstream: upstream,
-                       finch_name: Philter.TestFinch,
                        headers: [{"authorization", "Bearer tok"}],
                        extra_headers: [{"x-extra", "val"}]
                      )
@@ -713,7 +691,6 @@ defmodule PhilterTest do
                      conn(:get, "/test")
                      |> Philter.proxy(
                        upstream: upstream,
-                       finch_name: Philter.TestFinch,
                        headers: [{"authorization", "Bearer tok"}],
                        strip_headers: ["x-unwanted"]
                      )
@@ -729,7 +706,6 @@ defmodule PhilterTest do
                      conn(:get, "/test")
                      |> Philter.proxy(
                        upstream: upstream,
-                       finch_name: Philter.TestFinch,
                        headers: [{"authorization", "Bearer tok"}],
                        extra_headers: [{"x-extra", "val"}],
                        strip_headers: ["x-unwanted"]
@@ -753,7 +729,6 @@ defmodule PhilterTest do
         conn(:get, "/timeout")
         |> Philter.proxy(
           upstream: "http://localhost:#{port}",
-          finch_name: Philter.TestFinch,
           receive_timeout: 100
         )
 
@@ -811,7 +786,6 @@ defmodule PhilterTest do
         conn(:get, "/timing-default")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -843,7 +817,6 @@ defmodule PhilterTest do
         conn(:get, "/timing-collect")
         |> Philter.proxy(
           upstream: upstream,
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}},
           collect_timing: true
         )
@@ -870,7 +843,6 @@ defmodule PhilterTest do
         conn(:get, "/test")
         |> Philter.proxy(
           upstream: "http://localhost:59999",
-          finch_name: Philter.TestFinch,
           handler: {TestHandler, %{test_pid: self()}}
         )
 
@@ -894,7 +866,7 @@ defmodule PhilterTest do
       log =
         capture_log([level: :debug], fn ->
           conn(:get, "/log-test")
-          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+          |> Philter.proxy(upstream: upstream)
         end)
 
       assert log =~ "Philter GET"
@@ -906,10 +878,7 @@ defmodule PhilterTest do
       log =
         capture_log([level: :error], fn ->
           conn(:get, "/fail")
-          |> Philter.proxy(
-            upstream: "http://localhost:59999",
-            finch_name: Philter.TestFinch
-          )
+          |> Philter.proxy(upstream: "http://localhost:59999")
         end)
 
       assert log =~ "Philter error 502"
@@ -927,7 +896,7 @@ defmodule PhilterTest do
       log =
         capture_log([level: :debug], fn ->
           conn(:get, "/complete")
-          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+          |> Philter.proxy(upstream: upstream)
         end)
 
       assert log =~ "Philter complete 200"
@@ -941,7 +910,6 @@ defmodule PhilterTest do
           conn(:get, "/rejected")
           |> Philter.proxy(
             upstream: upstream,
-            finch_name: Philter.TestFinch,
             handler: {RejectingHandler, %{}}
           )
         end)
@@ -949,6 +917,48 @@ defmodule PhilterTest do
       assert log =~ "Philter rejected GET"
       assert log =~ "/rejected"
       assert log =~ "status=413"
+    end
+
+    # Asserting on an empty capture needs the pid-scoped helper: the built-in
+    # capture is fed by every process, so a concurrent test's log line would
+    # fail these. See `Philter.LogCapture`.
+    test "log_level: false produces no log output", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/silent", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      log =
+        capture_own_log(fn ->
+          conn(:get, "/silent")
+          |> Philter.proxy(upstream: upstream, log_level: false)
+        end)
+
+      assert log == ""
+    end
+
+    test "error log is suppressed when log_level: false" do
+      log =
+        capture_own_log(fn ->
+          conn(:get, "/fail")
+          |> Philter.proxy(upstream: "http://localhost:59999", log_level: false)
+        end)
+
+      assert log == ""
+    end
+
+    test ":finch_name warns that it is ignored", %{bypass: bypass, upstream: upstream} do
+      Bypass.expect(bypass, "GET", "/deprecated", fn conn ->
+        send_resp(conn, 200, "ok")
+      end)
+
+      log =
+        capture_own_log(fn ->
+          conn(:get, "/deprecated")
+          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
+        end)
+
+      assert log =~ "[warning]"
+      assert log =~ ":finch_name is deprecated and ignored"
     end
   end
 end

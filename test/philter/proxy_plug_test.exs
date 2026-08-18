@@ -8,15 +8,13 @@ defmodule Philter.ProxyPlugTest do
   setup do
     bypass = Bypass.open()
 
-    {:ok,
-     bypass: bypass, upstream: "http://localhost:#{bypass.port}", finch_name: Philter.TestFinch}
+    {:ok, bypass: bypass, upstream: "http://localhost:#{bypass.port}"}
   end
 
   describe "GET passthrough" do
     test "forwards GET request and streams response", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/test", fn conn ->
         conn
@@ -26,7 +24,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/test")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
       assert get_resp_header(conn, "x-custom") == ["value"]
@@ -35,8 +33,7 @@ defmodule Philter.ProxyPlugTest do
 
     test "forwards query parameters", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/search", fn conn ->
         assert conn.query_string == "q=test&page=1"
@@ -45,7 +42,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/search?q=test&page=1")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
     end
@@ -54,8 +51,7 @@ defmodule Philter.ProxyPlugTest do
   describe "POST with body" do
     test "forwards small request body to sink", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "POST", "/upload", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -67,15 +63,14 @@ defmodule Philter.ProxyPlugTest do
         conn(:post, "/upload", "small body")
         |> put_req_header("content-type", "text/plain")
         |> put_req_header("content-length", "10")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
     end
 
     test "streams large request body", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       body = :crypto.strong_rand_bytes(200_000)
       expected_hash = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
@@ -91,7 +86,7 @@ defmodule Philter.ProxyPlugTest do
         conn(:post, "/large", body)
         |> put_req_header("content-type", "application/octet-stream")
         |> put_req_header("content-length", "#{byte_size(body)}")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
     end
@@ -100,8 +95,7 @@ defmodule Philter.ProxyPlugTest do
   describe "response streaming" do
     test "streams chunked response from sink", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/stream", fn conn ->
         conn = Plug.Conn.send_chunked(conn, 200)
@@ -113,7 +107,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/stream")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
       assert conn.resp_body =~ "chunk1"
@@ -125,8 +119,7 @@ defmodule Philter.ProxyPlugTest do
   describe "request observation" do
     test "captures hash and preview of request body", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       body = "observable request body"
 
@@ -138,7 +131,7 @@ defmodule Philter.ProxyPlugTest do
       conn =
         conn(:post, "/observe", body)
         |> put_req_header("content-length", "#{byte_size(body)}")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       obs = conn.private[:philter_request_observation]
       expected_hash = :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
@@ -152,8 +145,7 @@ defmodule Philter.ProxyPlugTest do
   describe "response observation" do
     test "captures hash and preview of response body", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       response_body = "observable response body"
 
@@ -163,7 +155,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/observe")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       obs = conn.private[:philter_response_observation]
       expected_hash = :crypto.hash(:sha256, response_body) |> Base.encode16(case: :lower)
@@ -177,8 +169,7 @@ defmodule Philter.ProxyPlugTest do
   describe "path override" do
     test "uses string path override", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/api/v2", fn conn ->
         Plug.Conn.send_resp(conn, 200, "ok")
@@ -186,17 +177,14 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/channels/some-id/api/v2")
-        |> ProxyPlug.call(
-          ProxyPlug.init(upstream: upstream, finch_name: finch_name, path: "/api/v2")
-        )
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, path: "/api/v2"))
 
       assert conn.status == 200
     end
 
     test "uses function path override", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/prefix/original", fn conn ->
         Plug.Conn.send_resp(conn, 200, "ok")
@@ -207,7 +195,6 @@ defmodule Philter.ProxyPlugTest do
         |> ProxyPlug.call(
           ProxyPlug.init(
             upstream: upstream,
-            finch_name: finch_name,
             path: fn conn -> "/prefix" <> conn.request_path end
           )
         )
@@ -217,8 +204,7 @@ defmodule Philter.ProxyPlugTest do
 
     test "preserves query string with path override", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/override", fn conn ->
         assert conn.query_string == "foo=bar"
@@ -227,27 +213,23 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/original?foo=bar")
-        |> ProxyPlug.call(
-          ProxyPlug.init(upstream: upstream, finch_name: finch_name, path: "/override")
-        )
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, path: "/override"))
 
       assert conn.status == 200
     end
   end
 
   describe "error handling" do
-    test "returns 502 on sink connection refused", %{finch_name: finch_name} do
+    test "returns 502 on sink connection refused" do
       conn =
         conn(:get, "/test")
-        |> ProxyPlug.call(
-          ProxyPlug.init(upstream: "http://localhost:59999", finch_name: finch_name)
-        )
+        |> ProxyPlug.call(ProxyPlug.init(upstream: "http://localhost:59999"))
 
       assert conn.status == 502
       assert conn.halted
     end
 
-    test "returns 504 on sink timeout", %{finch_name: finch_name} do
+    test "returns 504 on sink timeout" do
       # Start a TCP server that accepts connections but never responds
       {:ok, listen_socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
       {:ok, port} = :inet.port(listen_socket)
@@ -264,7 +246,6 @@ defmodule Philter.ProxyPlugTest do
         |> ProxyPlug.call(
           ProxyPlug.init(
             upstream: "http://localhost:#{port}",
-            finch_name: finch_name,
             receive_timeout: 100
           )
         )
@@ -277,8 +258,7 @@ defmodule Philter.ProxyPlugTest do
 
     test "forwards error status codes from sink", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/error", fn conn ->
         Plug.Conn.send_resp(conn, 500, "Internal Error")
@@ -286,7 +266,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/error")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 500
     end
@@ -295,8 +275,7 @@ defmodule Philter.ProxyPlugTest do
   describe "extra_headers and strip_headers" do
     test "forwards extra_headers to upstream", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/extra", fn conn ->
         assert Plug.Conn.get_req_header(conn, "x-forwarded-for") == ["1.2.3.4"]
@@ -306,7 +285,6 @@ defmodule Philter.ProxyPlugTest do
       opts =
         ProxyPlug.init(
           upstream: upstream,
-          finch_name: finch_name,
           extra_headers: [{"x-forwarded-for", "1.2.3.4"}]
         )
 
@@ -319,8 +297,7 @@ defmodule Philter.ProxyPlugTest do
 
     test "forwards strip_headers to upstream", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/strip", fn conn ->
         assert Plug.Conn.get_req_header(conn, "authorization") == []
@@ -330,7 +307,6 @@ defmodule Philter.ProxyPlugTest do
       opts =
         ProxyPlug.init(
           upstream: upstream,
-          finch_name: finch_name,
           strip_headers: ["authorization"]
         )
 
@@ -370,8 +346,7 @@ defmodule Philter.ProxyPlugTest do
   describe "header forwarding" do
     test "forwards non-hop-by-hop request headers", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/headers", fn conn ->
         assert Plug.Conn.get_req_header(conn, "x-custom-header") == ["custom-value"]
@@ -381,15 +356,14 @@ defmodule Philter.ProxyPlugTest do
       conn =
         conn(:get, "/headers")
         |> put_req_header("x-custom-header", "custom-value")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
     end
 
     test "strips hop-by-hop headers from request", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/headers", fn conn ->
         assert Plug.Conn.get_req_header(conn, "connection") == []
@@ -399,15 +373,14 @@ defmodule Philter.ProxyPlugTest do
       conn =
         conn(:get, "/headers")
         |> put_req_header("connection", "keep-alive")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert conn.status == 200
     end
 
     test "forwards response headers", %{
       bypass: bypass,
-      upstream: upstream,
-      finch_name: finch_name
+      upstream: upstream
     } do
       Bypass.expect(bypass, "GET", "/", fn conn ->
         conn
@@ -417,7 +390,7 @@ defmodule Philter.ProxyPlugTest do
 
       conn =
         conn(:get, "/")
-        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream, finch_name: finch_name))
+        |> ProxyPlug.call(ProxyPlug.init(upstream: upstream))
 
       assert get_resp_header(conn, "x-response-header") == ["response-value"]
     end

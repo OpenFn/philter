@@ -5,7 +5,9 @@ defmodule Philter.ConfigTest do
 
   describe "defaults" do
     test "finch_name can be configured via application env" do
-      # test_helper.exs sets this to Philter.TestFinch
+      Application.put_env(:philter, :finch_name, Philter.TestFinch)
+      on_exit(fn -> Application.delete_env(:philter, :finch_name) end)
+
       assert Config.finch_name() == Philter.TestFinch
     end
 
