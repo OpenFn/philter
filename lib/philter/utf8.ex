@@ -97,7 +97,7 @@ defmodule Philter.UTF8 do
 
   defp truncate_to_valid(binary, max_bytes) do
     # Take max_bytes and then trim any incomplete UTF-8 sequence at the end
-    <<truncated::binary-size(max_bytes), _rest::binary>> = binary
+    <<truncated::binary-size(^max_bytes), _rest::binary>> = binary
     trim_to_valid_utf8(truncated)
   end
 
@@ -118,7 +118,7 @@ defmodule Philter.UTF8 do
 
   defp trim_trailing_bytes(binary, bytes_to_try) do
     size = byte_size(binary) - 1
-    <<trimmed::binary-size(size), _::binary>> = binary
+    <<trimmed::binary-size(^size), _::binary>> = binary
 
     if String.valid?(trimmed) do
       trimmed
@@ -142,7 +142,7 @@ defmodule Philter.UTF8 do
     if size < 0 do
       :error
     else
-      <<trimmed::binary-size(size), _::binary>> = binary
+      <<trimmed::binary-size(^size), _::binary>> = binary
 
       if String.valid?(trimmed) do
         {:ok, trimmed}

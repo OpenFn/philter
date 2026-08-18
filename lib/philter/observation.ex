@@ -155,7 +155,7 @@ defmodule Philter.Observation do
   defp capture_preview(existing, chunk) do
     remaining = @preview_size - byte_size(existing)
     to_capture = min(remaining, byte_size(chunk))
-    <<captured::binary-size(to_capture), _rest::binary>> = chunk
+    <<captured::binary-size(^to_capture), _rest::binary>> = chunk
     existing <> captured
   end
 end
