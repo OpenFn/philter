@@ -26,35 +26,16 @@ defmodule Philter.ProxyPlug do
 
   ## Options
 
-    * `:upstream` - Base URL of upstream server (required)
-    * `:handler` - Handler module or `{module, state}` tuple (optional)
-    * `:receive_timeout` - Response timeout in ms (default: `15_000`)
-    * `:max_payload_size` - Max body size for accumulation (default: `1_048_576`)
-    * `:persistable_content_types` - Content types to accumulate (default: JSON, XML, text)
-    * `:extra_headers` - Additional `[{name, value}]` headers to send upstream. Replaces any
-      existing header with the same name. Cannot be combined with `:headers`.
-    * `:strip_headers` - List of header names to remove from the outbound request.
-      Cannot be combined with `:headers`.
-    * `:block_private_networks` - Reject upstreams resolving to private/internal
-      addresses, an SSRF egress guard (default: `true`). See `Philter.Egress`.
-    * `:allowed_hosts` - Hosts that bypass the egress block check (default: `[]`).
-    * `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: `5_000`).
-    * `:finch_name` - **Deprecated and ignored.** The transport uses no connection pool.
-
-  See `Philter.Config` for global defaults and application configuration.
+  Takes the same options as `Philter.proxy/2`; `:upstream` is required. See
+  `Philter.Config` for global defaults and application configuration.
 
   ## Accessing Observations
 
-  After proxying, observations are available in `conn.private`:
-
-      plug :fetch_observations
-
-      defp fetch_observations(conn, _opts) do
-        req_obs = conn.private[:philter_request_observation]
-        resp_obs = conn.private[:philter_response_observation]
-        # req_obs and resp_obs contain: hash, size, preview, timing
-        conn
-      end
+  `forward` hands the request to this plug and nothing in the router runs
+  afterwards, so read observations from a handler's
+  `c:Philter.Handler.handle_response_finished/2` callback, which receives the
+  request and response observations, status, error and timing. See
+  `Philter.Handler`.
 
   ## Comparison with Philter.proxy/2
 

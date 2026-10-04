@@ -74,6 +74,5 @@ Tests use `ExUnit` with `async: true` throughout and `Bypass` for mocking upstre
 
 - `Philter.TestHelpers`: `bypass_upstream/0`, `test_handler/0`, `json_response/3`, `text_response/3`
 - `Philter.LogCapture`: log capture filtered to the calling process. `ExUnit.CaptureLog` sees every concurrently running test's logs, so it cannot prove nothing was logged under `async: true`; use `capture_own_log/1` for that. This works because Philter logs only from the process calling `proxy/2`.
-- `Philter.ConnCase`: Plug CaseTemplate (no Phoenix dependency); currently unused by the suite
 
 `test/test_helper.exs` sets `allowed_hosts` (`127.0.0.1`, `localhost`) in app env so loopback Bypass servers pass the egress guard while it stays enabled for the rest of the suite. To test that an address is blocked, use a host that isn't on that list and pass a fake `:resolver` (see `test/philter/egress_integration_test.exs`), which also uses `x509` for the TLS/SNI tests.

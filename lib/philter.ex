@@ -176,7 +176,7 @@ defmodule Philter do
       hostname resolves to a private, loopback, link-local or otherwise internal
       address (SSRF egress guard). See `Philter.Egress`.
 
-    * `:allowed_hosts` - Hosts that bypass the egress block check entirely (the
+    * `:allowed_hosts` - Hosts that are still resolved but skip the egress block check (the
       escape hatch, e.g. a deliberately internal upstream). Exact match after
       downcase and trailing-dot strip. Default: `[]`.
 
@@ -192,7 +192,7 @@ defmodule Philter do
 
   ## Return Value
 
-  Returns the `conn` with response sent. Observations are stored in:
+  Returns the `conn` with response sent. On success, observations are stored in:
 
     * `conn.private[:philter_request_observation]` - Request body observation
     * `conn.private[:philter_response_observation]` - Response body observation
@@ -202,7 +202,8 @@ defmodule Philter do
   ## Error Handling
 
   On upstream errors, returns `502 Bad Gateway`. On timeouts, returns `504 Gateway Timeout`.
-  The handler's `handle_response_finished/2` is still called with the `:error` field set.
+  The handler's `handle_response_finished/2` is still called with the `:error` field set,
+  and observations are not stored in `conn.private`.
   """
   @spec proxy(Plug.Conn.t(), proxy_opts()) :: Plug.Conn.t()
   def proxy(conn, opts) do
