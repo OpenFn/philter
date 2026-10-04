@@ -945,20 +945,5 @@ defmodule PhilterTest do
 
       assert log == ""
     end
-
-    test ":finch_name warns that it is ignored", %{bypass: bypass, upstream: upstream} do
-      Bypass.expect(bypass, "GET", "/deprecated", fn conn ->
-        send_resp(conn, 200, "ok")
-      end)
-
-      log =
-        capture_own_log(fn ->
-          conn(:get, "/deprecated")
-          |> Philter.proxy(upstream: upstream, finch_name: Philter.TestFinch)
-        end)
-
-      assert log =~ "[warning]"
-      assert log =~ ":finch_name is deprecated and ignored"
-    end
   end
 end

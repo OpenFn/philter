@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Dropped support for Elixir 1.15 and OTP 26, which are outside their security-patch windows, and Elixir 1.16, which cannot run on OTP 27. Philter now requires Elixir `~> 1.17` on OTP 27 or later.
+- **Breaking**: Removed the `:finch_name` option and `Philter.Config.finch_name/1`, deprecated and ignored since 0.4.0. Passing `:finch_name` no longer logs a warning; drop it from your options and `:philter` config.
 - Dropped the optional `:phoenix` dependency. No code referenced it — Philter builds on Plug, and Phoenix routers and controllers accept plain Plugs, so Phoenix applications can use `Philter.ProxyPlug` unchanged.
 
 ## [0.4.0] - 2026-07-14

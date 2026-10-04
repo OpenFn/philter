@@ -42,7 +42,7 @@ CI runs tests across Elixir 1.17–1.20 with OTP 27–29, with `compile --warnin
 
 **`Philter.Observation`** (internal): incremental body observation. Streams SHA256 via `:crypto.hash_init/:hash_update/:hash_final` (lowercase hex), captures the first 64KB as a preview (UTF-8 safe), tracks size, and keeps the full body only when told to and only while it stays under `max_payload_size`.
 
-**`Philter.Config`**: resolves configuration as per-request option, then `:philter` app env, then built-in default. Also holds the content-type matcher, which ignores parameters like `charset` and supports wildcards such as `text/*`. `:finch_name` is still resolved but deprecated and ignored.
+**`Philter.Config`**: resolves configuration as per-request option, then `:philter` app env, then built-in default. Also holds the content-type matcher, which ignores parameters like `charset` and supports wildcards such as `text/*`.
 
 **`Philter.Timing`**: builds the per-phase timing map (`connect_us`, `send_us`, `recv_us`) the transport returns when `collect_timing: true`. `queue_us` and `idle_time_us` are always `nil` and `reused_connection?` always `false`, since there is no pool.
 
