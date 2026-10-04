@@ -8,7 +8,7 @@ defmodule Philter.MixProject do
     [
       app: :philter,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -49,7 +49,7 @@ defmodule Philter.MixProject do
   defp deps do
     [
       # Required - core functionality
-      {:mint, "~> 1.9"},
+      {:mint, "~> 1.11"},
       {:plug, "~> 1.14"},
 
       # Optional - enhanced features

@@ -10,10 +10,27 @@ defmodule Philter.LogCapture do
   `=~` as the only safe assertion under `async: true`.
 
   That makes "nothing was logged" unassertable with the built-in capture. This
-  attaches its own handler filtered to the emitting pid, so the capture holds
-  only what the calling process logged. Philter logs entirely from the process
-  that calls `Philter.proxy/2`, so filtering on `self()` catches all of it.
+  module keeps one `:logger` handler installed for the whole run. `:logger`
+  calls handlers in the process that logged, so the handler checks that
+  process's dictionary and only forwards lines from processes that are
+  capturing. Philter logs entirely from the process that calls
+  `Philter.proxy/2`, so this catches all of it.
+
+  Adding and removing a handler per capture would race with `Logger.flush/0`
+  on older Elixir versions, which lists the handlers and then reads each one's
+  config, so a handler removed by another test in between makes it crash.
   """
+
+  @handler_id :philter_own_log
+  @capturing {__MODULE__, :capturing}
+
+  @doc """
+  Installs the shared handler. Call once from `test_helper.exs`.
+  """
+  @spec install() :: :ok
+  def install do
+    :ok = :logger.add_handler(@handler_id, __MODULE__, %{level: :all})
+  end
 
   @doc """
   Runs `fun`, returning `{result, log}` where `log` holds only the lines the
@@ -21,23 +38,13 @@ defmodule Philter.LogCapture do
   """
   @spec with_own_log((-> result)) :: {result, String.t()} when result: var
   def with_own_log(fun) when is_function(fun, 0) do
-    owner = self()
-    id = :"philter_own_log_#{System.unique_integer([:positive])}"
-
-    :ok =
-      :logger.add_handler(id, __MODULE__, %{
-        level: :all,
-        config: %{owner: owner},
-        filters: [own_pid: {&__MODULE__.__filter_pid__/2, owner}],
-        filter_default: :stop
-      })
+    Process.put(@capturing, true)
 
     try do
       result = fun.()
-      :ok = Logger.flush()
       {result, drain([])}
     after
-      :logger.remove_handler(id)
+      Process.delete(@capturing)
       # If fun raised, its lines are still queued; a later capture in this same
       # test would otherwise drain them as its own.
       drain([])
@@ -54,12 +61,8 @@ defmodule Philter.LogCapture do
   end
 
   @doc false
-  def __filter_pid__(%{meta: %{pid: pid}} = event, pid), do: event
-  def __filter_pid__(_event, _owner), do: :stop
-
-  @doc false
-  def log(%{level: level, msg: msg}, %{config: %{owner: owner}}) do
-    send(owner, {__MODULE__, "[#{level}] #{format(msg)}"})
+  def log(%{level: level, msg: msg}, _config) do
+    if Process.get(@capturing), do: send(self(), {__MODULE__, "[#{level}] #{format(msg)}"})
   end
 
   defp format({:string, chardata}), do: IO.iodata_to_binary(chardata)

@@ -77,8 +77,9 @@ defmodule Philter.Handler do
   Per-phase timing breakdown for a proxy request.
 
   When `collect_timing: true` is set, phase fields are measured directly around
-  the Mint transport calls. When timing capture is off, phase fields are `nil`
-  and `reused_connection?` is `nil`.
+  the Mint transport calls and `reused_connection?` is `false` (there is no
+  connection pool). When timing capture is off, phase fields and
+  `reused_connection?` are `nil`.
   """
   @type timing :: %{
           required(:total_us) => non_neg_integer(),
@@ -96,7 +97,7 @@ defmodule Philter.Handler do
   Contains observations for both request and response bodies, plus any error
   that occurred during proxying. The `:status` field is `nil` when the error
   occurred before receiving a response from upstream (e.g., connection refused,
-  pool checkout timeout).
+  connect timeout).
   """
   @type finished_result :: %{
           required(:request_observation) => body_observation(),
@@ -126,7 +127,8 @@ defmodule Philter.Handler do
   @doc """
   Called when the response is complete (or an error occurred).
 
-  Always called, even on error. Check `:error` field for failures.
+  Called on success and on error (check the `:error` field), but not when
+  `c:handle_request_started/2` rejects the request.
   """
   @callback handle_response_finished(finished_result(), state :: term()) ::
               {:ok, term()}

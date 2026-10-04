@@ -59,9 +59,9 @@ development, add it to `:allowed_hosts` (see
 ## How a request flows
 
 1. Configuration is resolved (per-request options over application config over defaults) and your handler's `handle_request_started/2` runs, which may reject the request outright.
-2. The upstream hostname is resolved and every resolved address is validated against the egress policy. A blocked address returns `403`, a DNS timeout `504`, and an unresolvable host `502`.
+2. The upstream URL must be `http` or `https` with a host, otherwise the request gets `502`. The hostname is then resolved and every resolved address is validated against the egress policy. A blocked address returns `403`, a DNS timeout `504`, and an unresolvable host `502`.
 3. The request body is streamed upstream in chunks and the response is streamed back to the client, with each chunk passed through an observer that incrementally hashes, sizes and previews it.
-4. On completion `handle_response_finished/2` is called (always, even on error) and the observations are stored in `conn.private`.
+4. On completion `handle_response_finished/2` is called. It runs on errors too, but not when `handle_request_started/2` rejected the request. On success the observations are also stored in `conn.private`.
 
 Upstream connection failures surface as `502 Bad Gateway` and upstream timeouts
 as `504 Gateway Timeout`.
@@ -79,13 +79,15 @@ req_obs = conn.private[:philter_request_observation]
 resp_obs = conn.private[:philter_response_observation]
 
 # Each observation contains:
-# - :hash - SHA256 hash of the body
+# - :hash - SHA256 of the body as lowercase hex
 # - :size - Total body size in bytes
 # - :preview - First 64KB of the body (UTF-8 safe truncation)
 # - :body - Full body (only if under max_payload_size and content-type matches)
 ```
 
-The hash, size and preview are always captured. The full `:body` is only
+The observations are only stored on a successful proxy; on an error, read them
+from your handler's `handle_response_finished/2` instead. The hash, size and
+preview are always captured. The full `:body` is only
 accumulated when the content type matches `:persistable_content_types` and the
 body stays under `:max_payload_size`.
 
@@ -96,6 +98,7 @@ Implement `Philter.Handler` to hook into the proxy lifecycle:
 ```elixir
 defmodule MyApp.ProxyHandler do
   use Philter.Handler
+  require Logger
 
   @impl true
   def handle_request_started(metadata, state) do
@@ -124,9 +127,18 @@ Philter.proxy(conn,
 )
 ```
 
+Only `handle_response_finished/2` is required; the other two default to
+`{:ok, state}`. `:handler` takes either `{module, initial_state}` or a bare
+module, which starts with `[]` as its state.
+
 `handle_request_started/2` can reject a request before it reaches upstream by
-returning `{:reject, status, body, state}`. `handle_response_finished/2` is
-always called, even on error; check its `:error` field.
+returning `{:reject, status, body, state}`, in which case no further callbacks
+run. Otherwise `handle_response_finished/2` is always called, even on error;
+check its `:error` field (`nil` on success) and expect `:status` to be `nil`
+when no upstream response arrived.
+
+`result.timing.total_us` is always set. Pass `collect_timing: true` to also
+fill in `connect_us`, `send_us` and `recv_us`; otherwise those are `nil`.
 
 ## Configuration
 
@@ -207,8 +219,8 @@ against this **by default**.
 ### Reaching an internal host on purpose
 
 If you genuinely need to proxy to an internal upstream, add its hostname to
-`allowed_hosts`. Listed hosts bypass the egress check entirely (matched
-case-insensitively, ignoring a trailing dot):
+`allowed_hosts`. Listed hosts skip the block check (matched case-insensitively,
+ignoring a trailing dot), though the name is still resolved as normal:
 
 ```elixir
 Philter.proxy(conn,

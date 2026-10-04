@@ -24,15 +24,14 @@ defmodule Philter.Config do
   ## Options
 
   - `:finch_name` - **Deprecated and ignored.** The transport uses no connection
-    pool. Still accepted so existing configuration does not crash (default:
-    `Philter.Finch`)
+    pool. Still accepted so existing configuration does not crash
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
   - `:log_level` - Logger level for lifecycle events, or `false` to disable (default: `:debug`)
   - `:block_private_networks` - Reject upstreams that resolve to private, loopback,
     link-local or otherwise internal ranges (SSRF egress guard, default: `true`)
-  - `:allowed_hosts` - Hosts that bypass the egress block check entirely. Exact
+  - `:allowed_hosts` - Hosts that are still resolved but skip the egress block check. Exact
     match after downcase + trailing-dot strip (default: `[]`)
   - `:dns_timeout` - Milliseconds to bound upstream DNS resolution (default: 5_000)
   - `:connect_timeout` - Milliseconds to bound the connection phase to a validated
