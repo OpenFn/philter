@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Philter is a streaming HTTP proxy library for Elixir with O(1) memory body observation. It forwards HTTP requests to upstream servers while capturing body observations (SHA256 hash, size, preview and, for matching content types, the full body) without buffering the full body in memory.
 
-Core deps: `mint ~> 1.11`, `plug ~> 1.14`. Optional: `jason ~> 1.0`. Test: `bypass ~> 2.1`, `x509 ~> 0.8` (self-signed certs for the TLS tests). Requires Elixir `~> 1.16`.
+Core deps: `mint ~> 1.11`, `plug ~> 1.14`. Optional: `jason ~> 1.0`. Test: `bypass ~> 2.1`, `x509 ~> 0.8` (self-signed certs for the TLS tests). Requires Elixir `~> 1.17` on OTP 27 or later.
 
 Philter depends on Plug, not Phoenix. Phoenix routers and controllers accept plain Plugs, so Phoenix apps can use `Philter.ProxyPlug` without Philter knowing Phoenix exists.
 
@@ -24,7 +24,7 @@ mix lint.fix                      # Auto-format (alias for mix format)
 mix ci                            # Full CI pipeline: deps.get + compile --warnings-as-errors + lint + test
 ```
 
-CI runs tests across Elixir 1.16–1.20 with OTP 26–29, with `compile --warnings-as-errors`. Format, credo and `mix deps.unlock --check-unused` run as a separate job, and dialyzer as another, both on the newest Elixir/OTP pair.
+CI runs tests across Elixir 1.17–1.20 with OTP 27–29, with `compile --warnings-as-errors`. Format, credo and `mix deps.unlock --check-unused` run as a separate job, and dialyzer as another, both on the newest Elixir/OTP pair.
 
 ## Architecture
 

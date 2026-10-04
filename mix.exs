@@ -8,7 +8,7 @@ defmodule Philter.MixProject do
     [
       app: :philter,
       version: @version,
-      elixir: "~> 1.16",
+      elixir: "~> 1.17",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
