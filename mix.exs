@@ -49,7 +49,7 @@ defmodule Philter.MixProject do
   defp deps do
     [
       # Required - core functionality
-      {:mint, "~> 1.9"},
+      {:mint, "~> 1.11"},
       {:plug, "~> 1.14"},
 
       # Optional - enhanced features

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Require Mint `~> 1.11`** (was `~> 1.9`). Mint 1.11.0 is the lowest release clearing six 2026 advisories relevant to proxying untrusted upstreams: unbounded HTTP/1 status-line and chunk-extension buffering (CVE-2026-82728), quadratic chunk-size parsing (CVE-2026-82729), HTTP/1 response smuggling via unvalidated chunk-size lines (CVE-2026-82672) and via chunked framing when `chunked` isn't the final transfer coding (CVE-2026-94194), and HTTP/2 memory exhaustion via HPACK-indexed cookies (CVE-2026-91043) and oversized frames (CVE-2026-92103).
+
 ### Removed
 - Dropped the optional `:phoenix` dependency. No code referenced it — Philter builds on Plug, and Phoenix routers and controllers accept plain Plugs, so Phoenix applications can use `Philter.ProxyPlug` unchanged.
 
