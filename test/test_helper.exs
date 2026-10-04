@@ -1,4 +1,5 @@
 ExUnit.start()
+Philter.LogCapture.install()
 
 # The SSRF egress guard is on by default and blocks loopback. Bypass binds to
 # 127.0.0.1 (reached via the "localhost" upstream URL), so allow-list both here
