@@ -24,7 +24,7 @@ mix lint.fix                      # Auto-format (alias for mix format)
 mix ci                            # Full CI pipeline: deps.get + compile --warnings-as-errors + lint + test
 ```
 
-CI runs tests across Elixir 1.15–1.18 with OTP 25–27. Compile uses `--warnings-as-errors`.
+CI runs tests across Elixir 1.16–1.20 with OTP 26–29. Compile uses `--warnings-as-errors`.
 
 ## Architecture
 
