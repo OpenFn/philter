@@ -4,13 +4,6 @@ defmodule Philter.ConfigTest do
   alias Philter.Config
 
   describe "defaults" do
-    test "finch_name can be configured via application env" do
-      Application.put_env(:philter, :finch_name, Philter.TestFinch)
-      on_exit(fn -> Application.delete_env(:philter, :finch_name) end)
-
-      assert Config.finch_name() == Philter.TestFinch
-    end
-
     test "receive_timeout has default" do
       assert Config.receive_timeout() == 15_000
     end
@@ -27,10 +20,6 @@ defmodule Philter.ConfigTest do
   end
 
   describe "per-request overrides" do
-    test "finch_name can be overridden" do
-      assert Config.finch_name(finch_name: MyApp.Finch) == MyApp.Finch
-    end
-
     test "receive_timeout can be overridden" do
       assert Config.receive_timeout(receive_timeout: 30_000) == 30_000
     end
@@ -49,7 +38,6 @@ defmodule Philter.ConfigTest do
     test "returns all config as map" do
       config = Config.resolve()
 
-      assert Map.has_key?(config, :finch_name)
       assert Map.has_key?(config, :receive_timeout)
       assert Map.has_key?(config, :max_payload_size)
       assert Map.has_key?(config, :persistable_content_types)

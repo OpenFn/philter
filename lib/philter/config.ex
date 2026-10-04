@@ -23,8 +23,6 @@ defmodule Philter.Config do
 
   ## Options
 
-  - `:finch_name` - **Deprecated and ignored.** The transport uses no connection
-    pool. Still accepted so existing configuration does not crash
   - `:receive_timeout` - Timeout in ms for receiving response (default: 15_000)
   - `:max_payload_size` - Max size in bytes for full body accumulation (default: 1_048_576 / 1MB)
   - `:persistable_content_types` - Content types eligible for full body storage (default: see below)
@@ -53,7 +51,6 @@ defmodule Philter.Config do
   Wildcards like `text/*` are supported.
   """
 
-  @default_finch_name Philter.Finch
   @default_receive_timeout 15_000
   @default_max_payload_size 1_048_576
   @default_log_level :debug
@@ -71,7 +68,6 @@ defmodule Philter.Config do
   ]
 
   @type t :: %{
-          finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
           persistable_content_types: [String.t()],
@@ -82,25 +78,6 @@ defmodule Philter.Config do
           connect_timeout: pos_integer(),
           transport_opts: keyword()
         }
-
-  @doc """
-  Returns the configured `:finch_name`. Deprecated and ignored.
-
-  ## Examples
-
-      iex> Philter.Config.finch_name()
-      Philter.Finch
-
-      iex> Philter.Config.finch_name(finch_name: MyApp.Finch)
-      MyApp.Finch
-
-  """
-  @spec finch_name(keyword()) :: atom()
-  def finch_name(opts \\ []) do
-    Keyword.get_lazy(opts, :finch_name, fn ->
-      Application.get_env(:philter, :finch_name, @default_finch_name)
-    end)
-  end
 
   @doc """
   Returns the receive timeout in milliseconds.
@@ -301,7 +278,6 @@ defmodule Philter.Config do
   @spec resolve(keyword()) :: t()
   def resolve(opts \\ []) do
     %{
-      finch_name: finch_name(opts),
       receive_timeout: receive_timeout(opts),
       max_payload_size: max_payload_size(opts),
       persistable_content_types: persistable_content_types(opts),

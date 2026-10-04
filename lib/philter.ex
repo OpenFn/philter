@@ -14,8 +14,7 @@ defmodule Philter do
 
   Philter uses a Mint-direct transport that resolves the upstream hostname,
   validates the resolved addresses against the SSRF egress policy (see
-  `Philter.Egress`), and pins the connection to a validated IP. No Finch pool is
-  needed; the `:finch_name` option is deprecated and ignored.
+  `Philter.Egress`), and pins the connection to a validated IP.
 
   ## Quick Start
 
@@ -84,7 +83,6 @@ defmodule Philter do
           headers: [{String.t(), String.t()}],
           extra_headers: [{String.t(), String.t()}],
           strip_headers: [String.t()],
-          finch_name: atom(),
           receive_timeout: pos_integer(),
           max_payload_size: pos_integer(),
           persistable_content_types: [String.t()],
@@ -148,9 +146,6 @@ defmodule Philter do
 
       When both `:strip_headers` and `:extra_headers` are used, the processing
       order is: filter hop-by-hop headers → rewrite host → strip → merge extra.
-
-    * `:finch_name` - **Deprecated and ignored.** The transport uses no
-      connection pool. Accepted so existing callers do not crash.
 
     * `:receive_timeout` - Response timeout in milliseconds. Default: `15_000`.
 
@@ -230,7 +225,6 @@ defmodule Philter do
       )
 
     log_level = config.log_level
-    maybe_warn_finch_name(opts, log_level)
 
     # Log #1: Request start
     log(log_level, fn ->
@@ -366,18 +360,6 @@ defmodule Philter do
       raise ArgumentError,
             ":headers cannot be combined with :extra_headers or :strip_headers"
     end
-  end
-
-  defp maybe_warn_finch_name(_opts, false), do: :ok
-
-  defp maybe_warn_finch_name(opts, _log_level) do
-    if Keyword.has_key?(opts, :finch_name) or Application.get_env(:philter, :finch_name) != nil do
-      Logger.warning(
-        "Philter :finch_name is deprecated and ignored; the Mint transport uses no connection pool"
-      )
-    end
-
-    :ok
   end
 
   defp resolve_handler(opts) do
