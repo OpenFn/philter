@@ -564,20 +564,26 @@ defmodule Philter do
     ctx.conn |> send_resp(status, body) |> halt()
   end
 
-  # A missing/blank host or a non-http(s) scheme can never yield a safe upstream
-  # connection, so both are refused as a gateway error before the egress gate runs.
+  # A missing/blank host, a non-http(s) scheme or an out-of-range port can never yield
+  # a safe upstream connection, so each is refused as a gateway error before the egress
+  # gate runs. Past the scheme check URI.parse/1 always fills in 80/443, so a nil port
+  # means the URL carried one above 65535 (Elixir 1.19+ drops it; earlier versions keep it).
   defp validate_upstream(%URI{host: host}) when host in [nil, ""], do: {:error, :invalid_host}
 
   defp validate_upstream(%URI{scheme: scheme}) when scheme not in ["http", "https"],
     do: {:error, :unsupported_scheme}
+
+  defp validate_upstream(%URI{port: port}) when is_nil(port) or port > 65_535,
+    do: {:error, :invalid_port}
 
   defp validate_upstream(_uri), do: :ok
 
   defp egress_response({:blocked, _ip}), do: {403, "Request blocked by egress policy"}
   defp egress_response(:dns_timeout), do: {504, "Gateway Timeout"}
 
-  defp egress_response(reason) when reason in [:no_addresses, :invalid_host, :unsupported_scheme],
-    do: {502, "Bad Gateway"}
+  defp egress_response(reason)
+       when reason in [:no_addresses, :invalid_host, :unsupported_scheme, :invalid_port],
+       do: {502, "Bad Gateway"}
 
   # Bodies are never observed on a reject, so both observations are empty.
   defp empty_observation, do: Observation.finalize(Observation.new())

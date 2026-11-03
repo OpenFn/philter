@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- An upstream with a port above 65535 now gets a 502 and `handle_response_finished/2` is called with the error, before any DNS lookup. On Elixir 1.19.7 it crashed the request process, and on `http` it already crashed on 1.18.
+
 ## [0.5.0] - 2026-10-04
 
 ### Security
